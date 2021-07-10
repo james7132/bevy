@@ -1,4 +1,5 @@
 use crate::{interpolation::utils::*, Quat, Vec2, Vec3, Vec3A, Vec4};
+use std::ops::Range;
 
 /// Defines how a particular type will be interpolated
 pub trait Lerp: Sized {
@@ -94,6 +95,15 @@ impl<T: Lerp + Clone> Lerp for Option<T> {
         match (a, b) {
             (Some(a), Some(b)) => Some(T::lerp_unclamped(a, b, t)),
             _ => step_unclamped(a, b, t), // change from `Some(T)` to `None` and vice versa
+        }
+    }
+}
+
+impl<T: Lerp + Clone> Lerp for Range<T> {
+    fn lerp_unclamped(a: &Self, b: &Self, t: f32) -> Self {
+        Range {
+            start: T::lerp_unclamped(&a.start, &b.start, t),
+            end: T::lerp_unclamped(&a.end, &b.end, t),
         }
     }
 }
