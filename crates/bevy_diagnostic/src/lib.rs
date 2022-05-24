@@ -9,6 +9,14 @@ pub use log_diagnostics_plugin::LogDiagnosticsPlugin;
 
 use bevy_app::prelude::*;
 
+#[cfg(feature = "tracy-memory")]
+use tracy_client::ProfiledAllocator;
+
+#[cfg(feature = "tracy-memory")]
+#[global_allocator]
+static GLOBAL: ProfiledAllocator<std::alloc::System> =
+    ProfiledAllocator::new(std::alloc::System, 100);
+
 /// Adds core diagnostics resources to an App.
 #[derive(Default)]
 pub struct DiagnosticsPlugin;
