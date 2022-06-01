@@ -63,6 +63,8 @@ pub enum GltfError {
     AssetIoError(#[from] AssetIoError),
     #[error("Missing sampler for animation {0}")]
     MissingAnimationSampler(usize),
+    #[error("failed to generate tangents: {0}")]
+    GenerateTangentsError(#[from] bevy_render::mesh::GenerateTangentsError),
 }
 
 /// Loads glTF files with all of their data as their corresponding bevy representations.
@@ -252,13 +254,6 @@ async fn load_gltf<'a, 'b>(
             }
 
             if let Some(vertex_attribute) = reader
-                .read_tangents()
-                .map(|v| VertexAttributeValues::Float32x4(v.collect()))
-            {
-                mesh.insert_attribute(Mesh::ATTRIBUTE_TANGENT, vertex_attribute);
-            }
-
-            if let Some(vertex_attribute) = reader
                 .read_tex_coords(0)
                 .map(|v| VertexAttributeValues::Float32x2(v.into_f32().collect()))
             {
@@ -310,6 +305,25 @@ async fn load_gltf<'a, 'b>(
                 }
             }
 
+            if let Some(vertex_attribute) = reader
+                .read_tangents()
+                .map(|v| VertexAttributeValues::Float32x4(v.collect()))
+            {
+                mesh.insert_attribute(Mesh::ATTRIBUTE_TANGENT, vertex_attribute);
+            } else if mesh.attribute(Mesh::ATTRIBUTE_NORMAL).is_some()
+                && primitive.material().normal_texture().is_some()
+            {
+                bevy_log::debug!(
+                    "Missing vertex tangents, computing them using the mikktspace algorithm"
+                );
+                if let Err(err) = mesh.generate_tangents() {
+                    bevy_log::warn!(
+                        "Failed to generate vertex tangents using the mikktspace algorithm: {:?}",
+                        err
+                    );
+                }
+            }
+
             let mesh = load_context.set_labeled_asset(&primitive_label, LoadedAsset::new(mesh));
             primitives.push(super::GltfPrimitive {
                 mesh,
@@ -319,6 +333,7 @@ async fn load_gltf<'a, 'b>(
                     .and_then(|i| materials.get(i).cloned()),
             });
         }
+
         let handle = load_context.set_labeled_asset(
             &mesh_label(&mesh),
             LoadedAsset::new(super::GltfMesh { primitives }),
@@ -614,55 +629,45 @@ fn load_material(material: &Material, load_context: &mut LoadContext) -> Handle<
     let pbr = material.pbr_metallic_roughness();
 
     let color = pbr.base_color_factor();
-    let base_color_texture = if let Some(info) = pbr.base_color_texture() {
+    let base_color_texture = pbr.base_color_texture().map(|info| {
         // TODO: handle info.tex_coord() (the *set* index for the right texcoords)
         let label = texture_label(&info.texture());
         let path = AssetPath::new_ref(load_context.path(), Some(&label));
-        Some(load_context.get_handle(path))
-    } else {
-        None
-    };
+        load_context.get_handle(path)
+    });
 
     let normal_map_texture: Option<Handle<Image>> =
-        if let Some(normal_texture) = material.normal_texture() {
+        material.normal_texture().map(|normal_texture| {
             // TODO: handle normal_texture.scale
             // TODO: handle normal_texture.tex_coord() (the *set* index for the right texcoords)
             let label = texture_label(&normal_texture.texture());
             let path = AssetPath::new_ref(load_context.path(), Some(&label));
-            Some(load_context.get_handle(path))
-        } else {
-            None
-        };
+            load_context.get_handle(path)
+        });
 
-    let metallic_roughness_texture = if let Some(info) = pbr.metallic_roughness_texture() {
+    let metallic_roughness_texture = pbr.metallic_roughness_texture().map(|info| {
         // TODO: handle info.tex_coord() (the *set* index for the right texcoords)
         let label = texture_label(&info.texture());
         let path = AssetPath::new_ref(load_context.path(), Some(&label));
-        Some(load_context.get_handle(path))
-    } else {
-        None
-    };
+        load_context.get_handle(path)
+    });
 
-    let occlusion_texture = if let Some(occlusion_texture) = material.occlusion_texture() {
+    let occlusion_texture = material.occlusion_texture().map(|occlusion_texture| {
         // TODO: handle occlusion_texture.tex_coord() (the *set* index for the right texcoords)
         // TODO: handle occlusion_texture.strength() (a scalar multiplier for occlusion strength)
         let label = texture_label(&occlusion_texture.texture());
         let path = AssetPath::new_ref(load_context.path(), Some(&label));
-        Some(load_context.get_handle(path))
-    } else {
-        None
-    };
+        load_context.get_handle(path)
+    });
 
     let emissive = material.emissive_factor();
-    let emissive_texture = if let Some(info) = material.emissive_texture() {
+    let emissive_texture = material.emissive_texture().map(|info| {
         // TODO: handle occlusion_texture.tex_coord() (the *set* index for the right texcoords)
         // TODO: handle occlusion_texture.strength() (a scalar multiplier for occlusion strength)
         let label = texture_label(&info.texture());
         let path = AssetPath::new_ref(load_context.path(), Some(&label));
-        Some(load_context.get_handle(path))
-    } else {
-        None
-    };
+        load_context.get_handle(path)
+    });
 
     load_context.set_labeled_asset(
         &material_label,
@@ -727,8 +732,8 @@ fn load_node(
                 let orthographic_projection: OrthographicProjection = OrthographicProjection {
                     far: orthographic.zfar(),
                     near: orthographic.znear(),
-                    scaling_mode: ScalingMode::FixedHorizontal,
-                    scale: xmag / 2.0,
+                    scaling_mode: ScalingMode::FixedHorizontal(1.0),
+                    scale: xmag,
                     ..Default::default()
                 };
 
