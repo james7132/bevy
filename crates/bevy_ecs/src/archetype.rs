@@ -6,7 +6,7 @@ use crate::{
     component::{ComponentId, StorageType},
     entity::{Entity, EntityLocation},
     storage::{SparseArray, SparseSet, SparseSetIndex, TableId},
-    utils::UnsafeVecExt,
+    unsafe_utils::UnsafeVecExt,
 };
 use std::{
     collections::HashMap,

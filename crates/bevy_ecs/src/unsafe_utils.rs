@@ -8,7 +8,7 @@ pub(crate) trait UnsafeVecExt<T> {
     ///
     /// In release builds, this will not panic if `index` is invalid and
     /// will not do any bounds checking.
-    /// 
+    ///
     /// # Panics
     /// Will panic in debug builds if `index` is invalid.
     ///

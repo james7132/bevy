@@ -2,7 +2,7 @@ use crate::{
     component::{ComponentId, ComponentInfo, ComponentTicks},
     entity::Entity,
     storage::Column,
-    utils::UnsafeVecExt,
+    unsafe_utils::UnsafeVecExt,
 };
 use bevy_ptr::{OwningPtr, Ptr};
 use std::{cell::UnsafeCell, hash::Hash, marker::PhantomData};

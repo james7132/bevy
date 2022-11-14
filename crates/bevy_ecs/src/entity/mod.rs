@@ -34,7 +34,7 @@ mod map_entities;
 
 pub use map_entities::*;
 
-use crate::{archetype::ArchetypeId, storage::SparseSetIndex, utils::UnsafeVecExt};
+use crate::{archetype::ArchetypeId, storage::SparseSetIndex, unsafe_utils::UnsafeVecExt};
 use serde::{Deserialize, Serialize};
 use std::{convert::TryFrom, fmt, mem, sync::atomic::Ordering};
 

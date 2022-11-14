@@ -3,7 +3,7 @@ use crate::{
     entity::Entity,
     query::DebugCheckedUnwrap,
     storage::{blob_vec::BlobVec, SparseSet},
-    utils::UnsafeVecExt,
+    unsafe_utils::UnsafeVecExt,
 };
 use bevy_ptr::{OwningPtr, Ptr, PtrMut};
 use bevy_utils::HashMap;
