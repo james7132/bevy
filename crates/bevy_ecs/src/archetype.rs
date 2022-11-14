@@ -6,6 +6,7 @@ use crate::{
     component::{ComponentId, StorageType},
     entity::{Entity, EntityLocation},
     storage::{SparseArray, SparseSet, SparseSetIndex, TableId},
+    utils::UnsafeVecExt,
 };
 use std::{
     collections::HashMap,
@@ -301,9 +302,16 @@ impl Archetype {
 
     /// Removes the entity at `index` by swapping it out. Returns the table row the entity is stored
     /// in.
-    pub(crate) fn swap_remove(&mut self, index: usize) -> ArchetypeSwapRemoveResult {
+    ///
+    /// # Safety
+    /// index must be valid for the Archetype.
+    pub(crate) unsafe fn swap_remove_unchecked(
+        &mut self,
+        index: usize,
+    ) -> ArchetypeSwapRemoveResult {
         let is_last = index == self.entities.len() - 1;
-        let entity = self.entities.swap_remove(index);
+        // SAFETY: The caller guarentees that the provided index is valid.
+        let entity = unsafe { self.entities.swap_remove_unchecked(index) };
         ArchetypeSwapRemoveResult {
             swapped_entity: if is_last {
                 None

@@ -34,7 +34,7 @@ mod map_entities;
 
 pub use map_entities::*;
 
-use crate::{archetype::ArchetypeId, storage::SparseSetIndex};
+use crate::{archetype::ArchetypeId, storage::SparseSetIndex, utils::UnsafeVecExt};
 use serde::{Deserialize, Serialize};
 use std::{convert::TryFrom, fmt, mem, sync::atomic::Ordering};
 
@@ -427,7 +427,10 @@ impl Entities {
             self.len += 1;
             None
         } else if let Some(index) = self.pending.iter().position(|item| *item == entity.index) {
-            self.pending.swap_remove(index);
+            // SAFETY: If the index is in pending, it's valid.
+            unsafe {
+                self.pending.swap_remove_unchecked(index);
+            }
             let new_free_cursor = self.pending.len() as IdCursor;
             *self.free_cursor.get_mut() = new_free_cursor;
             self.len += 1;
@@ -459,7 +462,10 @@ impl Entities {
             self.len += 1;
             AllocAtWithoutReplacement::DidNotExist
         } else if let Some(index) = self.pending.iter().position(|item| *item == entity.index) {
-            self.pending.swap_remove(index);
+            // SAFETY: If the index was in pending, it is valid.
+            unsafe {
+                self.pending.swap_remove_unchecked(index);
+            }
             let new_free_cursor = self.pending.len() as IdCursor;
             *self.free_cursor.get_mut() = new_free_cursor;
             self.len += 1;

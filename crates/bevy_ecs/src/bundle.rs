@@ -555,7 +555,8 @@ impl<'a, 'b> BundleInserter<'a, 'b> {
                 location
             }
             InsertBundleResult::NewArchetypeSameTable { new_archetype } => {
-                let result = self.archetype.swap_remove(location.index);
+                // SAFETY: The caller guarentees that archetype_index is valid
+                let result = unsafe { self.archetype.swap_remove_unchecked(location.index) };
                 if let Some(swapped_entity) = result.swapped_entity {
                     self.entities.meta[swapped_entity.index as usize].location = location;
                 }
@@ -583,7 +584,8 @@ impl<'a, 'b> BundleInserter<'a, 'b> {
                 new_archetype,
                 new_table,
             } => {
-                let result = self.archetype.swap_remove(location.index);
+                // SAFETY: The caller guarentees that archetype_index is valid
+                let result = unsafe { self.archetype.swap_remove_unchecked(location.index) };
                 if let Some(swapped_entity) = result.swapped_entity {
                     self.entities.meta[swapped_entity.index as usize].location = location;
                 }

@@ -16,6 +16,7 @@ pub mod reflect;
 pub mod schedule;
 pub mod storage;
 pub mod system;
+mod utils;
 pub mod world;
 
 pub use bevy_ptr as ptr;

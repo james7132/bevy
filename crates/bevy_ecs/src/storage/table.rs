@@ -3,6 +3,7 @@ use crate::{
     entity::Entity,
     query::DebugCheckedUnwrap,
     storage::{blob_vec::BlobVec, SparseSet},
+    utils::UnsafeVecExt,
 };
 use bevy_ptr::{OwningPtr, Ptr, PtrMut};
 use bevy_utils::HashMap;
@@ -113,7 +114,7 @@ impl Column {
     #[inline]
     pub(crate) unsafe fn swap_remove_unchecked(&mut self, row: usize) {
         self.data.swap_remove_and_drop_unchecked(row);
-        self.ticks.swap_remove(row);
+        self.ticks.swap_remove_unchecked(row);
     }
 
     #[inline]
@@ -124,9 +125,11 @@ impl Column {
     ) -> Option<(OwningPtr<'_>, ComponentTicks)> {
         (row < self.data.len()).then(|| {
             // SAFETY: The row was length checked before this.
-            let data = unsafe { self.data.swap_remove_and_forget_unchecked(row) };
-            let ticks = self.ticks.swap_remove(row).into_inner();
-            (data, ticks)
+            unsafe {
+                let data = self.data.swap_remove_and_forget_unchecked(row);
+                let ticks = self.ticks.swap_remove_unchecked(row).into_inner();
+                (data, ticks)
+            }
         })
     }
 
@@ -139,7 +142,7 @@ impl Column {
         row: usize,
     ) -> (OwningPtr<'_>, ComponentTicks) {
         let data = self.data.swap_remove_and_forget_unchecked(row);
-        let ticks = self.ticks.swap_remove(row).into_inner();
+        let ticks = self.ticks.swap_remove_unchecked(row).into_inner();
         (data, ticks)
     }
 
@@ -164,7 +167,7 @@ impl Column {
         debug_assert!(self.data.layout() == other.data.layout());
         let ptr = self.data.get_unchecked_mut(dst_row);
         other.data.swap_remove_unchecked(src_row, ptr);
-        *self.ticks.get_unchecked_mut(dst_row) = other.ticks.swap_remove(src_row);
+        *self.ticks.get_unchecked_mut(dst_row) = other.ticks.swap_remove_unchecked(src_row);
     }
 
     // # Safety
@@ -297,7 +300,7 @@ impl Table {
             column.swap_remove_unchecked(row);
         }
         let is_last = row == self.entities.len() - 1;
-        self.entities.swap_remove(row);
+        self.entities.swap_remove_unchecked(row);
         if is_last {
             None
         } else {
@@ -319,7 +322,7 @@ impl Table {
     ) -> TableMoveResult {
         debug_assert!(row < self.entity_count());
         let is_last = row == self.entities.len() - 1;
-        let new_row = new_table.allocate(self.entities.swap_remove(row));
+        let new_row = new_table.allocate(self.entities.swap_remove_unchecked(row));
         for (component_id, column) in self.columns.iter_mut() {
             if let Some(new_column) = new_table.get_column_mut(*component_id) {
                 new_column.initialize_from_unchecked(column, row, new_row);
@@ -351,7 +354,7 @@ impl Table {
     ) -> TableMoveResult {
         debug_assert!(row < self.entity_count());
         let is_last = row == self.entities.len() - 1;
-        let new_row = new_table.allocate(self.entities.swap_remove(row));
+        let new_row = new_table.allocate(self.entities.swap_remove_unchecked(row));
         for (component_id, column) in self.columns.iter_mut() {
             if let Some(new_column) = new_table.get_column_mut(*component_id) {
                 new_column.initialize_from_unchecked(column, row, new_row);
@@ -382,7 +385,7 @@ impl Table {
     ) -> TableMoveResult {
         debug_assert!(row < self.entity_count());
         let is_last = row == self.entities.len() - 1;
-        let new_row = new_table.allocate(self.entities.swap_remove(row));
+        let new_row = new_table.allocate(self.entities.swap_remove_unchecked(row));
         for (component_id, column) in self.columns.iter_mut() {
             new_table
                 .get_column_mut(*component_id)

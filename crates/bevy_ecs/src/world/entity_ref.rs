@@ -348,14 +348,16 @@ impl<'w> EntityMut<'w> {
         Some(result)
     }
 
-    /// Safety: `new_archetype_id` must have the same or a subset of the components
-    /// in `old_archetype_id`. Probably more safety stuff too, audit a call to
-    /// this fn as if the code here was written inline
-    ///
-    /// when DROP is true removed components will be dropped otherwise they will be forgotten
-    ///
     // We use a const generic here so that we are less reliant on
     // inlining for rustc to optimize out the `match DROP`
+    /// # Safety:
+    /// `new_archetype_id` must have the same or a subset of the components
+    /// in `old_archetype_id`. Probably more safety stuff too, audit a call to
+    /// this fn as if the code here was written inline.
+    ///
+    /// `old_location` must be valid for the old archetype.
+    ///
+    /// when DROP is true removed components will be dropped otherwise they will be forgotten
     #[allow(clippy::too_many_arguments)]
     unsafe fn move_entity_from_remove<const DROP: bool>(
         entity: Entity,
@@ -368,7 +370,8 @@ impl<'w> EntityMut<'w> {
         new_archetype_id: ArchetypeId,
     ) {
         let old_archetype = &mut archetypes[old_archetype_id];
-        let remove_result = old_archetype.swap_remove(old_location.index);
+        // SAFETY: The caller guarentees that the provided location is valid for old_archetype
+        let remove_result = unsafe { old_archetype.swap_remove_unchecked(old_location.index) };
         if let Some(swapped_entity) = remove_result.swapped_entity {
             entities.meta[swapped_entity.index as usize].location = old_location;
         }
@@ -498,7 +501,8 @@ impl<'w> EntityMut<'w> {
                     .get_or_insert_with(component_id, Vec::new);
                 removed_components.push(self.entity);
             }
-            let remove_result = archetype.swap_remove(location.index);
+            // SAFETY: Location indicies storedin Entities are always valid.
+            let remove_result = unsafe { archetype.swap_remove_unchecked(location.index) };
             if let Some(swapped_entity) = remove_result.swapped_entity {
                 world.entities.meta[swapped_entity.index as usize].location = location;
             }

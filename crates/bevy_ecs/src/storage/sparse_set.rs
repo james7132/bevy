@@ -2,6 +2,7 @@ use crate::{
     component::{ComponentId, ComponentInfo, ComponentTicks},
     entity::Entity,
     storage::Column,
+    utils::UnsafeVecExt,
 };
 use bevy_ptr::{OwningPtr, Ptr};
 use std::{cell::UnsafeCell, hash::Hash, marker::PhantomData};
@@ -195,10 +196,12 @@ impl ComponentSparseSet {
             let dense_index = dense_index as usize;
             #[cfg(debug_assertions)]
             assert_eq!(entity, self.entities[dense_index]);
-            self.entities.swap_remove(dense_index);
             let is_last = dense_index == self.dense.len() - 1;
             // SAFETY: dense_index was just removed from `sparse`, which ensures that it is valid
-            let (value, _) = unsafe { self.dense.swap_remove_and_forget_unchecked(dense_index) };
+            let (value, _) = unsafe {
+                self.entities.swap_remove_unchecked(dense_index);
+                self.dense.swap_remove_and_forget_unchecked(dense_index)
+            };
             if !is_last {
                 let swapped_entity = self.entities[dense_index];
                 #[cfg(not(debug_assertions))]
@@ -216,10 +219,12 @@ impl ComponentSparseSet {
             let dense_index = dense_index as usize;
             #[cfg(debug_assertions)]
             assert_eq!(entity, self.entities[dense_index]);
-            self.entities.swap_remove(dense_index);
             let is_last = dense_index == self.dense.len() - 1;
             // SAFETY: if the sparse index points to something in the dense vec, it exists
-            unsafe { self.dense.swap_remove_unchecked(dense_index) }
+            unsafe {
+                self.dense.swap_remove_unchecked(dense_index);
+                self.entities.swap_remove_unchecked(dense_index);
+            }
             if !is_last {
                 let swapped_entity = self.entities[dense_index];
                 #[cfg(not(debug_assertions))]
@@ -339,8 +344,11 @@ impl<I: SparseSetIndex, V> SparseSet<I, V> {
     pub fn remove(&mut self, index: I) -> Option<V> {
         self.sparse.remove(index).map(|dense_index| {
             let is_last = dense_index == self.dense.len() - 1;
-            let value = self.dense.swap_remove(dense_index);
-            self.indices.swap_remove(dense_index);
+            // SAFETY: if the sparse index points to something in the dense vec, it exists
+            let value = unsafe {
+                self.indices.swap_remove_unchecked(dense_index);
+                self.dense.swap_remove_unchecked(dense_index)
+            };
             if !is_last {
                 let swapped_index = self.indices[dense_index].clone();
                 *self.sparse.get_mut(swapped_index).unwrap() = dense_index;
