@@ -2,8 +2,9 @@ use crate::{
     archetype::{Archetype, ArchetypeComponentId},
     change_detection::Ticks,
     component::{Component, ComponentId, ComponentStorage, ComponentTicks, StorageType},
+    unsafe_utils::DebugCheckedUnwrap,
     entity::Entity,
-    query::{Access, DebugCheckedUnwrap, FilteredAccess},
+    query::{Access, FilteredAccess},
     storage::{ComponentSparseSet, Table},
     world::{Mut, World},
 };

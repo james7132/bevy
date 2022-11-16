@@ -2,7 +2,8 @@ use crate::{
     archetype::{Archetype, ArchetypeComponentId},
     component::{Component, ComponentId, ComponentStorage, ComponentTicks, StorageType},
     entity::Entity,
-    query::{Access, DebugCheckedUnwrap, FilteredAccess, WorldQuery},
+    query::{Access, FilteredAccess, WorldQuery},
+    unsafe_utils::DebugCheckedUnwrap,
     storage::{ComponentSparseSet, Table},
     world::World,
 };

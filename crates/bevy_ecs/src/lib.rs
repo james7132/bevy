@@ -17,6 +17,7 @@ pub mod schedule;
 pub mod storage;
 pub mod system;
 pub mod world;
+mod unsafe_utils;
 
 pub use bevy_ptr as ptr;
 

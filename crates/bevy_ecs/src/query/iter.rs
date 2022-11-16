@@ -2,7 +2,8 @@ use crate::{
     archetype::{ArchetypeEntity, ArchetypeId, Archetypes},
     entity::{Entities, Entity},
     prelude::World,
-    query::{ArchetypeFilter, DebugCheckedUnwrap, QueryState, WorldQuery},
+    query::{ArchetypeFilter, QueryState, WorldQuery},
+    unsafe_utils::DebugCheckedUnwrap,
     storage::{TableId, Tables},
 };
 use std::{borrow::Borrow, iter::FusedIterator, marker::PhantomData, mem::MaybeUninit};

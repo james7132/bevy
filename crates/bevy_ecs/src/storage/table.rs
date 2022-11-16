@@ -1,7 +1,7 @@
 use crate::{
     component::{ComponentId, ComponentInfo, ComponentTicks, Components},
     entity::Entity,
-    query::DebugCheckedUnwrap,
+    unsafe_utils::DebugCheckedUnwrap,
     storage::{blob_vec::BlobVec, ImmutableSparseSet, SparseSet},
 };
 use bevy_ptr::{OwningPtr, Ptr, PtrMut};

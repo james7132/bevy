@@ -4,8 +4,9 @@ use crate::{
     entity::Entity,
     prelude::FromWorld,
     query::{
-        Access, DebugCheckedUnwrap, FilteredAccess, QueryCombinationIter, QueryIter, WorldQuery,
+        Access, FilteredAccess, QueryCombinationIter, QueryIter, WorldQuery,
     },
+    unsafe_utils::DebugCheckedUnwrap,
     storage::TableId,
     world::{World, WorldId},
 };
