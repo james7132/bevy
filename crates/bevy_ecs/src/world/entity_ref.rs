@@ -6,6 +6,7 @@ use crate::{
     entity::{Entities, Entity, EntityLocation},
     storage::{SparseSet, Storages},
     world::{Mut, World},
+    unsafe_utils::DebugCheckedUnwrap,
 };
 use bevy_ptr::{OwningPtr, Ptr, UnsafeCellDeref};
 use bevy_utils::tracing::debug;
@@ -317,7 +318,7 @@ impl<'w> EntityMut<'w> {
         // matches
         let result = unsafe {
             T::from_components(storages, &mut |storages| {
-                let component_id = bundle_components.next().unwrap();
+                let component_id = bundle_components.next().debug_checked_unwrap();
                 // SAFETY: entity location is valid and table row is removed below
                 take_component(
                     components,
@@ -459,7 +460,7 @@ impl<'w> EntityMut<'w> {
                     storages
                         .sparse_sets
                         .get_mut(component_id)
-                        .unwrap()
+                        .debug_checked_unwrap()
                         .remove(entity);
                 }
             }
@@ -505,7 +506,10 @@ impl<'w> EntityMut<'w> {
             table_row = remove_result.table_row;
 
             for component_id in archetype.sparse_set_components() {
-                let sparse_set = world.storages.sparse_sets.get_mut(component_id).unwrap();
+                // SAFETY: The component must exist in sparse sets.
+                let sparse_set = unsafe {
+                    world.storages.sparse_sets.get_mut(component_id).debug_checked_unwrap()
+                };
                 sparse_set.remove(self.entity);
             }
             // SAFETY: table rows stored in archetypes always exist
@@ -515,7 +519,7 @@ impl<'w> EntityMut<'w> {
         };
 
         if let Some(moved_entity) = moved_entity {
-            let moved_location = world.entities.get(moved_entity).unwrap();
+            let moved_location = world.entities.get(moved_entity).debug_checked_unwrap();
             world.archetypes[moved_location.archetype_id]
                 .set_entity_table_row(moved_location.index, table_row);
         }
@@ -710,7 +714,7 @@ unsafe fn take_component<'a>(
         StorageType::Table => {
             let table = &mut storages.tables[archetype.table_id()];
             // SAFETY: archetypes will always point to valid columns
-            let components = table.get_column_mut(component_id).unwrap();
+            let components = table.get_column_mut(component_id).debug_checked_unwrap();
             let table_row = archetype.entity_table_row(location.index);
             // SAFETY: archetypes only store valid table_rows and the stored component type is T
             components.get_data_unchecked_mut(table_row).promote()
@@ -718,9 +722,9 @@ unsafe fn take_component<'a>(
         StorageType::SparseSet => storages
             .sparse_sets
             .get_mut(component_id)
-            .unwrap()
+            .debug_checked_unwrap()
             .remove_and_forget(entity)
-            .unwrap(),
+            .debug_checked_unwrap(),
     }
 }
 
