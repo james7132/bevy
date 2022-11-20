@@ -9,7 +9,7 @@ use bevy_tasks::{ComputeTaskPool, Scope, TaskPool};
 #[cfg(feature = "trace")]
 use bevy_utils::tracing::Instrument;
 use event_listener::Event;
-use fixedbitset::FixedBitSet;
+use roaring::{RoaringBitmap, MultiOps};
 
 #[cfg(test)]
 use scheduling_event::*;
@@ -38,13 +38,13 @@ pub struct ParallelExecutor {
     /// Receives finish events from systems.
     finish_receiver: Receiver<usize>,
     /// Systems that should be started at next opportunity.
-    queued: FixedBitSet,
+    queued: RoaringBitmap,
     /// Systems that are currently running.
-    running: FixedBitSet,
+    running: RoaringBitmap,
     /// Whether a non-send system is currently running.
     non_send_running: bool,
     /// Systems that should run this iteration.
-    should_run: FixedBitSet,
+    should_run: RoaringBitmap,
     /// Compound archetype-component access information of currently running systems.
     active_archetype_component_access: Access<ArchetypeComponentId>,
     /// Scratch space to avoid reallocating a vector when updating dependency counters.
@@ -79,9 +79,6 @@ impl Default for ParallelExecutor {
 impl ParallelSystemExecutor for ParallelExecutor {
     fn rebuild_cached_data(&mut self, systems: &[SystemContainer]) {
         self.system_metadata.clear();
-        self.queued.grow(systems.len());
-        self.running.grow(systems.len());
-        self.should_run.grow(systems.len());
 
         // Construct scheduling data for systems.
         for container in systems {
@@ -126,15 +123,15 @@ impl ParallelSystemExecutor for ParallelExecutor {
 
         ComputeTaskPool::init(TaskPool::default).scope(|scope| {
             self.prepare_systems(scope, systems, world);
-            if self.should_run.count_ones(..) == 0 {
+            if self.should_run.is_empty() {
                 return;
             }
             let parallel_executor = async {
                 // All systems have been ran if there are no queued or running systems.
-                while 0 != self.queued.count_ones(..) + self.running.count_ones(..) {
+                while !self.queued.is_empty() || !self.running.is_empty() {
                     self.process_queued_systems();
                     // Avoid deadlocking if no systems were actually started.
-                    if self.running.count_ones(..) != 0 {
+                    if !self.running.is_empty() {
                         // Wait until at least one system has finished.
                         let index = self
                             .finish_receiver
@@ -191,7 +188,7 @@ impl ParallelExecutor {
             // Queue the system if it has no dependencies, otherwise reset its dependency counter.
             if system_data.dependencies_total == 0 {
                 if !can_start {
-                    self.queued.insert(index);
+                    self.queued.insert(index as u32);
                 }
             } else {
                 system_data.dependencies_now = system_data.dependencies_total;
@@ -202,7 +199,7 @@ impl ParallelExecutor {
             }
 
             // Spawn the system task.
-            self.should_run.insert(index);
+            self.should_run.insert(index as u32);
             let finish_sender = self.finish_sender.clone();
             let system = system.system_mut();
             #[cfg(feature = "trace")] // NB: outside the task to get the TLS current span
@@ -244,7 +241,7 @@ impl ParallelExecutor {
                     started_systems += 1;
                 }
 
-                self.running.insert(index);
+                self.running.insert(index as u32);
                 if !system_data.is_send {
                     self.non_send_running = true;
                 }
@@ -303,11 +300,11 @@ impl ParallelExecutor {
         // Removing them will cause the test to fail.
         #[cfg(test)]
         let mut started_systems = 0;
-        for index in self.queued.ones() {
+        for index in self.queued.iter() {
             // If the system shouldn't actually run this iteration, process it as completed
             // immediately; otherwise, check for conflicts and signal its task to start.
-            let system_metadata = &self.system_metadata[index];
-            if !self.should_run[index] {
+            let system_metadata = &self.system_metadata[index as usize];
+            if !self.should_run.contains(index) {
                 self.dependants_scratch.extend(&system_metadata.dependants);
             } else if Self::can_start_now(
                 self.non_send_running,
@@ -333,9 +330,9 @@ impl ParallelExecutor {
             self.emit_event(SchedulingEvent::StartedSystems(started_systems));
         }
         // Remove now running systems from the queue.
-        self.queued.difference_with(&self.running);
+        self.queued = [&self.queued, &self.running].difference();
         // Remove immediately processed systems from the queue.
-        self.queued.intersect_with(&self.should_run);
+        self.queued = [&self.queued, &self.should_run].intersection();
     }
 
     /// Unmarks the system give index as running, caches indices of its dependants
@@ -345,7 +342,7 @@ impl ParallelExecutor {
         if !system_data.is_send {
             self.non_send_running = false;
         }
-        self.running.set(index, false);
+        self.running.remove(index as u32);
         self.dependants_scratch.extend(&system_data.dependants);
     }
 
@@ -353,9 +350,9 @@ impl ParallelExecutor {
     /// running systems' access information.
     fn rebuild_active_access(&mut self) {
         self.active_archetype_component_access.clear();
-        for index in self.running.ones() {
+        for index in self.running.iter() {
             self.active_archetype_component_access
-                .extend(&self.system_metadata[index].archetype_component_access);
+                .extend(&self.system_metadata[index as usize].archetype_component_access);
         }
     }
 
@@ -366,7 +363,7 @@ impl ParallelExecutor {
             let dependant_data = &mut self.system_metadata[index];
             dependant_data.dependencies_now -= 1;
             if dependant_data.dependencies_now == 0 {
-                self.queued.insert(index);
+                self.queued.insert(index as u32);
             }
         }
     }
