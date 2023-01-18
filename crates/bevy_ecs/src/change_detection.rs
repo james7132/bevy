@@ -23,7 +23,8 @@ pub const CHECK_TICK_THRESHOLD: u32 = 518_400_000;
 /// Changes stop being detected once they become this old.
 pub const MAX_CHANGE_AGE: u32 = u32::MAX - (2 * CHECK_TICK_THRESHOLD - 1);
 
-pub trait ComponentMut<'a>: DetectChanges {
+pub trait ComponentMut<'a> {
+    type Inner: ?Sized;
     const ENABLED: bool;
     fn build(
         inner: &'a mut Self::Inner,
@@ -400,6 +401,7 @@ where
 }
 
 impl<'a, T> ComponentMut<'a> for Mut<'a, T> {
+    type Inner = T;
     const ENABLED: bool = true;
     fn build(
         value: &'a mut Self::Inner,
@@ -424,37 +426,9 @@ change_detection_impl!(Mut<'a, T>, T, true,);
 impl_methods!(Mut<'a, T>, T,);
 impl_debug!(Mut<'a, T>,);
 
-impl<'a, T: ?Sized> DetectChanges for &'a mut T {
-    type Inner = T;
-
-    #[inline]
-    fn is_added(&self) -> bool {
-        true
-    }
-
-    #[inline]
-    fn is_changed(&self) -> bool {
-        true
-    }
-
-    #[inline]
-    fn set_changed(&mut self) {}
-
-    #[inline]
-    fn last_changed(&self) -> u32 {
-        0
-    }
-
-    #[inline]
-    fn set_last_changed(&mut self, _last_change_tick: u32) {}
-
-    #[inline]
-    fn bypass_change_detection(&mut self) -> &mut Self::Inner {
-        self
-    }
-}
 
 impl<'a, T> ComponentMut<'a> for &'a mut T {
+    type Inner = T;
     const ENABLED: bool = false;
     fn build(
         value: &'a mut Self::Inner,
