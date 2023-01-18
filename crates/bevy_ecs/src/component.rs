@@ -127,7 +127,7 @@ use std::{
 /// [orphan rule]: https://doc.rust-lang.org/book/ch10-02-traits.html#implementing-a-trait-on-a-type
 /// [newtype pattern]: https://doc.rust-lang.org/book/ch19-03-advanced-traits.html#using-the-newtype-pattern-to-implement-external-traits-on-external-types
 pub trait Component: Send + Sync + 'static {
-    type WriteFetch<'a>: ComponentMut<'a> + DetectChanges<Inner = Self> + DerefMut<Target = Self>;
+    type WriteFetch<'a>: ComponentMut<'a, Inner = Self> + DerefMut<Target = Self>;
     type Storage: ComponentStorage;
 
     fn shrink<'wlong: 'wshort, 'wshort>(
