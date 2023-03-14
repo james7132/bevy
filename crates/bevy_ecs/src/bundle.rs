@@ -3,7 +3,6 @@
 //! This module contains the [`Bundle`] trait and some other helper types.
 
 pub use bevy_ecs_macros::Bundle;
-use bevy_utils::HashSet;
 
 use crate::{
     archetype::{
@@ -756,29 +755,24 @@ unsafe fn initialize_bundle(
     component_ids: Vec<ComponentId>,
     id: BundleId,
 ) -> BundleInfo {
-    let mut deduped = component_ids.clone();
-    deduped.sort();
-    deduped.dedup();
+    let mut prev = None;
+    let mut last = None;
+    let mut duplicates = Vec::new();
 
-    if deduped.len() != component_ids.len() {
-        // TODO: Replace with `Vec::partition_dedup` once https://github.com/rust-lang/rust/issues/54279 is stabilized
-        let mut seen = HashSet::new();
-        let mut dups = Vec::new();
-        for id in component_ids {
-            if !seen.insert(id) {
-                dups.push(id);
-            }
+    // We cannot directly sort component_ids as it must remain in bundle order
+    let mut sorted = component_ids.clone();
+    sorted.sort();
+    for id in sorted {
+        if last == Some(id) && last != prev {
+            // SAFETY: component_id exists and is therefore valid
+            duplicates.push(unsafe { components.get_info_unchecked(id).name() });
         }
+        prev = last;
+        last = Some(id);
+    }
 
-        let names = dups
-            .into_iter()
-            .map(|id| {
-                // SAFETY: component_id exists and is therefore valid
-                unsafe { components.get_info_unchecked(id).name() }
-            })
-            .collect::<Vec<_>>()
-            .join(", ");
-
+    if !duplicates.is_empty() {
+        let names = duplicates.join(", ");
         panic!("Bundle {bundle_type_name} has duplicate components: {names}");
     }
 
