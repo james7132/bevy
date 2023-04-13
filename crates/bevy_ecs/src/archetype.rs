@@ -77,9 +77,7 @@ pub struct ArchetypeId(NonZeroU32);
 impl ArchetypeId {
     /// The ID for the [`Archetype`] without any components.
     // SAFETY: 1 is not equal to 0
-    pub const EMPTY: ArchetypeId = ArchetypeId(unsafe {
-        NonZeroU32::new_unchecked(1)
-    });
+    pub const EMPTY: ArchetypeId = ArchetypeId(unsafe { NonZeroU32::new_unchecked(1) });
 
     #[inline]
     pub(crate) const fn new(index: usize) -> Self {
@@ -87,9 +85,7 @@ impl ArchetypeId {
             panic!("Invalid ArchetypeId");
         } else {
             // SAFETY: index is guarenteed not to be zero.
-            unsafe {
-                ArchetypeId(NonZeroU32::new_unchecked(index as u32))
-            }
+            unsafe { ArchetypeId(NonZeroU32::new_unchecked(index as u32)) }
         }
     }
 

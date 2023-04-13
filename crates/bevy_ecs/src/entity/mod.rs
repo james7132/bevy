@@ -514,7 +514,7 @@ impl Entities {
                 }
             } else {
                 AllocAtWithoutReplacement::DidNotExist
-            } 
+            }
         };
 
         self.meta[entity.index as usize].generation = entity.generation;
