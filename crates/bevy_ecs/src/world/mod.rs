@@ -1464,7 +1464,7 @@ impl World {
             self.entities.flush(|entity, location| {
                 // SAFETY: no components are allocated by archetype.allocate() because the archetype
                 // is empty
-                *location = empty_archetype.allocate(entity, table.allocate(entity));
+                *location = Some(empty_archetype.allocate(entity, table.allocate(entity)));
             });
         }
     }

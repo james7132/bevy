@@ -27,6 +27,7 @@ use crate::{
 };
 use std::{
     hash::Hash,
+    num::NonZeroU32,
     ops::{Index, IndexMut},
 };
 
@@ -70,24 +71,30 @@ impl ArchetypeRow {
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 // SAFETY: Must be repr(transparent) due to the safety requirements on EntityLocation
 #[repr(transparent)]
-pub struct ArchetypeId(u32);
+pub struct ArchetypeId(NonZeroU32);
 
 impl ArchetypeId {
     /// The ID for the [`Archetype`] without any components.
-    pub const EMPTY: ArchetypeId = ArchetypeId(0);
-    /// # Safety:
-    ///
-    /// This must always have an all-1s bit pattern to ensure soundness in fast entity id space allocation.
-    pub const INVALID: ArchetypeId = ArchetypeId(u32::MAX);
+    // SAFETY: 1 is not equal to 0
+    pub const EMPTY: ArchetypeId = ArchetypeId(unsafe {
+        NonZeroU32::new_unchecked(1)
+    });
 
     #[inline]
     pub(crate) const fn new(index: usize) -> Self {
-        ArchetypeId(index as u32)
+        if index == 0 {
+            panic!("Invalid ArchetypeId");
+        } else {
+            // SAFETY: index is guarenteed not to be zero.
+            unsafe {
+                ArchetypeId(NonZeroU32::new_unchecked(index as u32))
+            }
+        }
     }
 
     #[inline]
     pub(crate) fn index(self) -> usize {
-        self.0 as usize
+        self.0.get() as usize
     }
 }
 
@@ -602,7 +609,14 @@ pub struct Archetypes {
 impl Archetypes {
     pub(crate) fn new() -> Self {
         let mut archetypes = Archetypes {
-            archetypes: Vec::new(),
+            // Dummy archetype to pad out the zero slot
+            archetypes: vec![Archetype {
+                id: ArchetypeId::new(1),
+                table_id: TableId::new(0),
+                edges: Edges::default(),
+                entities: Vec::new(),
+                components: SparseSet::new().into_immutable(),
+            }],
             archetype_ids: Default::default(),
             archetype_component_count: 0,
         };

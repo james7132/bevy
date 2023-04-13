@@ -468,10 +468,10 @@ impl Entities {
             self.len += 1;
             None
         } else {
-            Some(mem::replace(
+            mem::replace(
                 &mut self.meta[entity.index as usize].location,
                 EntityMeta::EMPTY.location,
-            ))
+            )
         };
 
         self.meta[entity.index as usize].generation = entity.generation;
@@ -504,13 +504,15 @@ impl Entities {
             AllocAtWithoutReplacement::DidNotExist
         } else {
             let current_meta = &self.meta[entity.index as usize];
-            if current_meta.location.archetype_id == ArchetypeId::INVALID {
-                AllocAtWithoutReplacement::DidNotExist
-            } else if current_meta.generation == entity.generation {
-                AllocAtWithoutReplacement::Exists(current_meta.location)
+            if let Some(location) = current_meta.location {
+                if current_meta.generation == entity.generation {
+                    AllocAtWithoutReplacement::Exists(location)
+                } else {
+                    return AllocAtWithoutReplacement::ExistsWithWrongGeneration;
+                }
             } else {
-                return AllocAtWithoutReplacement::ExistsWithWrongGeneration;
-            }
+                AllocAtWithoutReplacement::DidNotExist
+            } 
         };
 
         self.meta[entity.index as usize].generation = entity.generation;
@@ -536,7 +538,7 @@ impl Entities {
         let new_free_cursor = self.pending.len() as IdCursor;
         *self.free_cursor.get_mut() = new_free_cursor;
         self.len -= 1;
-        Some(loc)
+        loc
     }
 
     /// Ensure at least `n` allocations can succeed without reallocating.
@@ -572,12 +574,10 @@ impl Entities {
     /// Note: for pending entities, returns `Some(EntityLocation::INVALID)`.
     pub fn get(&self, entity: Entity) -> Option<EntityLocation> {
         if let Some(meta) = self.meta.get(entity.index as usize) {
-            if meta.generation != entity.generation
-                || meta.location.archetype_id == ArchetypeId::INVALID
-            {
+            if meta.generation != entity.generation {
                 return None;
             }
-            Some(meta.location)
+            meta.location
         } else {
             None
         }
@@ -592,7 +592,7 @@ impl Entities {
     ///    before handing control to unknown code.
     pub(crate) unsafe fn set(&mut self, index: u32, location: EntityLocation) {
         // SAFETY: Caller guarantees that `index` a valid entity index
-        self.meta.get_unchecked_mut(index as usize).location = location;
+        self.meta.get_unchecked_mut(index as usize).location = Some(location);
     }
 
     /// Get the [`Entity`] with a given id, if it exists in this [`Entities`] collection
@@ -632,7 +632,7 @@ impl Entities {
     ///
     /// Note: freshly-allocated entities (ones which don't come from the pending list) are guaranteed
     /// to be initialized with the invalid archetype.
-    pub unsafe fn flush(&mut self, mut init: impl FnMut(Entity, &mut EntityLocation)) {
+    pub unsafe fn flush(&mut self, mut init: impl FnMut(Entity, &mut Option<EntityLocation>)) {
         let free_cursor = self.free_cursor.get_mut();
         let current_free_cursor = *free_cursor;
 
@@ -677,7 +677,7 @@ impl Entities {
         // the [`Entity`] has not been assigned to an [`Archetype`][crate::archetype::Archetype], which is the case here
         unsafe {
             self.flush(|_entity, location| {
-                location.archetype_id = ArchetypeId::INVALID;
+                *location = None;
             });
         }
     }
@@ -732,14 +732,14 @@ struct EntityMeta {
     /// The current generation of the [`Entity`].
     pub generation: u32,
     /// The current location of the [`Entity`]
-    pub location: EntityLocation,
+    pub location: Option<EntityLocation>,
 }
 
 impl EntityMeta {
     /// meta for **pending entity**
     const EMPTY: EntityMeta = EntityMeta {
         generation: 0,
-        location: EntityLocation::INVALID,
+        location: None,
     };
 }
 
@@ -770,16 +770,6 @@ pub struct EntityLocation {
     ///
     /// [`Table`]: crate::storage::Table
     pub table_row: TableRow,
-}
-
-impl EntityLocation {
-    /// location for **pending entity** and **invalid entity**
-    const INVALID: EntityLocation = EntityLocation {
-        archetype_id: ArchetypeId::INVALID,
-        archetype_row: ArchetypeRow::INVALID,
-        table_id: TableId::INVALID,
-        table_row: TableRow::INVALID,
-    };
 }
 
 #[cfg(test)]

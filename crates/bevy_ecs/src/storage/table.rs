@@ -31,8 +31,6 @@ use std::{
 pub struct TableId(u32);
 
 impl TableId {
-    pub(crate) const INVALID: TableId = TableId(u32::MAX);
-
     /// Creates a new [`TableId`].
     ///
     /// `index` *must* be retrieved from calling [`TableId::index`] on a `TableId` you got
@@ -79,8 +77,6 @@ impl TableId {
 pub struct TableRow(u32);
 
 impl TableRow {
-    pub(crate) const INVALID: TableRow = TableRow(u32::MAX);
-
     /// Creates a `TableRow`.
     #[inline]
     pub const fn new(index: usize) -> Self {
