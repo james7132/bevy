@@ -48,6 +48,7 @@ impl ArchetypeRow {
     pub const INVALID: ArchetypeRow = ArchetypeRow(u32::MAX);
 
     /// Creates a `ArchetypeRow`.
+    #[inline]
     pub const fn new(index: usize) -> Self {
         Self(index as u32)
     }
@@ -440,6 +441,7 @@ impl Archetype {
     /// # Safety
     /// valid component values must be immediately written to the relevant storages
     /// `table_row` must be valid
+    #[inline]
     pub(crate) unsafe fn allocate(
         &mut self,
         entity: Entity,
@@ -456,6 +458,7 @@ impl Archetype {
         }
     }
 
+    #[inline]
     pub(crate) fn reserve(&mut self, additional: usize) {
         self.entities.reserve(additional);
     }
@@ -465,6 +468,7 @@ impl Archetype {
     ///
     /// # Panics
     /// This function will panic if `index >= self.len()`
+    #[inline]
     pub(crate) fn swap_remove(&mut self, row: ArchetypeRow) -> ArchetypeSwapRemoveResult {
         let is_last = row.index() == self.entities.len() - 1;
         let entity = self.entities.swap_remove(row.index());
