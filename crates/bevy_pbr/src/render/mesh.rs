@@ -44,7 +44,7 @@ use bevy_render::{
     Extract, ExtractSchedule, Render, RenderApp, RenderSet,
 };
 use bevy_transform::components::GlobalTransform;
-use bevy_utils::{tracing::error, EntityHashMap, HashMap, Hashed};
+use bevy_utils::{tracing::error, EntityHashMap, HashMap, HashMapExt, Hashed};
 use std::cell::Cell;
 use thread_local::ThreadLocal;
 
@@ -313,7 +313,9 @@ pub fn extract_meshes(
         // FIXME: Remove this - it is just a workaround to enable rendering to work as
         // render commands require an entity to exist at the moment.
         entities.extend(queue.get_mut().iter().map(|(e, _)| (*e, Mesh3d)));
-        render_mesh_instances.extend(queue.get_mut().drain(..));
+        // All of the entities from the query must be unique: no entity is ever added twice
+        // and the map is cleared before this loop starts.
+        render_mesh_instances.0.extend_unique_unchecked(queue.get_mut().drain(..));
     }
     *previous_len = entities.len();
     commands.insert_or_spawn_batch(entities);

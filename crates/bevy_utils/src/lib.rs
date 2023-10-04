@@ -302,6 +302,41 @@ pub type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 /// A [`HashSet`] pre-configured to use [`EntityHash`] hashing.
 pub type EntityHashSet<T> = hashbrown::HashSet<T, EntityHash>;
 
+/// An extension trait with utility functions for [`HashMap`] .
+pub trait HashMapExt<K, V> {
+    /// Inserts multiple key-value pairs into the map without checking
+    /// if the keys already exists in the map.
+    ///
+    /// This operation is safe if the keys are unique within the iteator and 
+    /// do not exist in the map.
+    ///
+    /// However, if a key exists in the map already, the behavior is unspecified:
+    /// this operation may panic, loop forever, or any following operation with the map
+    /// may panic, loop forever or return arbitrary result.
+    ///
+    /// That said, this operation (and following operations) are guaranteed to
+    /// not violate memory safety.
+    ///
+    /// This operation is faster than regular extend, because it does not perform
+    /// lookup before insertion.
+    ///
+    /// This operation is useful during initial population of the map.
+    /// For example, when constructing a map from another map, we know
+    /// that keys are unique.
+    fn extend_unique_unchecked(&mut self, iter: impl Iterator<Item=(K, V)>);
+}
+
+impl<K: Hash + Eq, V, Hasher: BuildHasher> HashMapExt<K, V> for hashbrown::HashMap<K, V, Hasher> {
+    fn extend_unique_unchecked(&mut self, items: impl IntoIterator<Item=(K, V)>) {
+        let iter = items.into_iter();
+        let (reserve, _) = iter.size_hint();
+        self.reserve(reserve);
+        iter.for_each(|(k, v)| {
+            self.insert_unique_unchecked(k, v);
+        });
+    }
+}
+
 /// A type which calls a function when dropped.
 /// This can be used to ensure that cleanup code is run even in case of a panic.
 ///
