@@ -17,10 +17,10 @@ pub struct BlendInput<T> {
 
 /// An animatable value type.
 pub trait Animatable: Reflect + Sized + Send + Sync + 'static {
-    /// Interpolates between `a` and `b` with  a interpolation factor of `time`.
+    /// Linearly interpolates between `a` and `b` with  a interpolation factor of `time`.
     ///
     /// The `time` parameter here may not be clamped to the range `[0.0, 1.0]`.
-    fn interpolate(a: &Self, b: &Self, time: f32) -> Self;
+    fn linearly_interpolate(a: &Self, b: &Self, time: f32) -> Self;
 
     /// Blends one or more values together.
     ///
@@ -36,7 +36,7 @@ macro_rules! impl_float_animatable {
     ($ty: ty, $base: ty) => {
         impl Animatable for $ty {
             #[inline]
-            fn interpolate(a: &Self, b: &Self, t: f32) -> Self {
+            fn linearly_interpolate(a: &Self, b: &Self, t: f32) -> Self {
                 let t = <$base>::from(t);
                 (*a) * (1.0 - t) + (*b) * t
             }
@@ -48,7 +48,7 @@ macro_rules! impl_float_animatable {
                     if input.additive {
                         value += <$base>::from(input.weight) * input.value;
                     } else {
-                        value = Self::interpolate(&value, &input.value, input.weight);
+                        value = Self::linearly_interpolate(&value, &input.value, input.weight);
                     }
                 }
                 value
@@ -70,7 +70,7 @@ impl_float_animatable!(DVec4, f64);
 // Vec3 is special cased to use Vec3A internally for blending
 impl Animatable for Vec3 {
     #[inline]
-    fn interpolate(a: &Self, b: &Self, t: f32) -> Self {
+    fn linearly_interpolate(a: &Self, b: &Self, t: f32) -> Self {
         (*a) * (1.0 - t) + (*b) * t
     }
 
@@ -81,7 +81,8 @@ impl Animatable for Vec3 {
             if input.additive {
                 value += input.weight * Vec3A::from(input.value);
             } else {
-                value = Vec3A::interpolate(&value, &Vec3A::from(input.value), input.weight);
+                value =
+                    Vec3A::linearly_interpolate(&value, &Vec3A::from(input.value), input.weight);
             }
         }
         Self::from(value)
@@ -90,7 +91,7 @@ impl Animatable for Vec3 {
 
 impl Animatable for bool {
     #[inline]
-    fn interpolate(a: &Self, b: &Self, t: f32) -> Self {
+    fn linearly_interpolate(a: &Self, b: &Self, t: f32) -> Self {
         util::step_unclamped(*a, *b, t)
     }
 
@@ -104,11 +105,11 @@ impl Animatable for bool {
 }
 
 impl Animatable for Transform {
-    fn interpolate(a: &Self, b: &Self, t: f32) -> Self {
+    fn linearly_interpolate(a: &Self, b: &Self, t: f32) -> Self {
         Self {
-            translation: Vec3::interpolate(&a.translation, &b.translation, t),
-            rotation: Quat::interpolate(&a.rotation, &b.rotation, t),
-            scale: Vec3::interpolate(&a.scale, &b.scale, t),
+            translation: Vec3::linearly_interpolate(&a.translation, &b.translation, t),
+            rotation: Quat::linearly_interpolate(&a.rotation, &b.rotation, t),
+            scale: Vec3::linearly_interpolate(&a.scale, &b.scale, t),
         }
     }
 
@@ -123,13 +124,18 @@ impl Animatable for Transform {
                 scale += input.weight * Vec3A::from(input.value.scale);
                 rotation = (input.value.rotation * input.weight) * rotation;
             } else {
-                translation = Vec3A::interpolate(
+                translation = Vec3A::linearly_interpolate(
                     &translation,
                     &Vec3A::from(input.value.translation),
                     input.weight,
                 );
-                scale = Vec3A::interpolate(&scale, &Vec3A::from(input.value.scale), input.weight);
-                rotation = Quat::interpolate(&rotation, &input.value.rotation, input.weight);
+                scale = Vec3A::linearly_interpolate(
+                    &scale,
+                    &Vec3A::from(input.value.scale),
+                    input.weight,
+                );
+                rotation =
+                    Quat::linearly_interpolate(&rotation, &input.value.rotation, input.weight);
             }
         }
 
@@ -145,13 +151,13 @@ impl Animatable for Quat {
     /// Performs an nlerp, because it's cheaper and easier to combine with other animations,
     /// reference: <http://number-none.com/product/Understanding%20Slerp,%20Then%20Not%20Using%20It/>
     #[inline]
-    fn interpolate(a: &Self, b: &Self, t: f32) -> Self {
+    fn linearly_interpolate(a: &Self, b: &Self, t: f32) -> Self {
         // Make sure is always the short path, look at this: https://github.com/mgeier/quaternion-nursery
         let b = if a.dot(*b) < 0.0 { -*b } else { *b };
 
         let a: Vec4 = (*a).into();
         let b: Vec4 = b.into();
-        let rot = Vec4::interpolate(&a, &b, t);
+        let rot = Vec4::linearly_interpolate(&a, &b, t);
         let inv_mag = bevy_math::approx_rsqrt(rot.dot(rot));
         Quat::from_vec4(rot * inv_mag)
     }
@@ -160,7 +166,7 @@ impl Animatable for Quat {
     fn blend(inputs: impl Iterator<Item = BlendInput<Self>>) -> Self {
         let mut value = Self::IDENTITY;
         for input in inputs {
-            value = Self::interpolate(&value, &input.value, input.weight);
+            value = Self::linearly_interpolate(&value, &input.value, input.weight);
         }
         value
     }
