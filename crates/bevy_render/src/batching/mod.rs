@@ -8,7 +8,7 @@ use bevy_utils::nonmax::NonMaxU32;
 
 use crate::{
     render_phase::{CachedRenderPipelinePhaseItem, DrawFunctionId, RenderPhase},
-    render_resource::{CachedRenderPipelineId, GpuArrayBuffer, GpuArrayBufferable},
+    render_resource::{CachedRenderPipelineId, GpuArrayBufferable, RenderPhaseArrayBuffer},
     renderer::{RenderDevice, RenderQueue},
 };
 
@@ -77,7 +77,9 @@ pub trait GetBatchData {
 /// Batch the items in a render phase. This means comparing metadata needed to draw each phase item
 /// and trying to combine the draws into a batch.
 pub fn batch_and_prepare_render_phase<I: CachedRenderPipelinePhaseItem, F: GetBatchData>(
-    gpu_array_buffer: ResMut<GpuArrayBuffer<F::BufferData>>,
+    render_device: Res<RenderDevice>,
+    render_queue: Res<RenderQueue>,
+    gpu_array_buffer: ResMut<RenderPhaseArrayBuffer<F::BufferData, I>>,
     mut views: Query<&mut RenderPhase<I>>,
     param: StaticSystemParam<F::Param>,
 ) {
@@ -113,14 +115,10 @@ pub fn batch_and_prepare_render_phase<I: CachedRenderPipelinePhaseItem, F: GetBa
             }
         });
     }
-}
 
-pub fn write_batched_instance_buffer<F: GetBatchData>(
-    render_device: Res<RenderDevice>,
-    render_queue: Res<RenderQueue>,
-    gpu_array_buffer: ResMut<GpuArrayBuffer<F::BufferData>>,
-) {
-    let gpu_array_buffer = gpu_array_buffer.into_inner();
+    // Drop the mutable borrow on the gpu_array_buffer.
+    drop(process_item);
+
     gpu_array_buffer.write_buffer(&render_device, &render_queue);
     gpu_array_buffer.clear();
 }

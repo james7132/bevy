@@ -1,3 +1,5 @@
+use std::marker::PhantomData;
+
 use bevy_asset::{load_internal_asset, AssetId};
 use bevy_core_pipeline::{
     core_3d::{AlphaMask3d, Opaque3d, Transmissive3d, Transparent3d, CORE_3D_DEPTH_FORMAT},
@@ -13,7 +15,7 @@ use bevy_ecs::{
 use bevy_math::{Affine3, Rect, UVec2, Vec4};
 use bevy_render::{
     batching::{
-        batch_and_prepare_render_phase, write_batched_instance_buffer, GetBatchData,
+        batch_and_prepare_render_phase, GetBatchData,
         NoAutomaticBatching,
     },
     mesh::*,
@@ -116,7 +118,6 @@ impl Plugin for MeshRenderPlugin {
                 .init_resource::<SkinIndices>()
                 .init_resource::<MorphUniform>()
                 .init_resource::<MorphIndices>()
-                .allow_ambiguous_resource::<GpuArrayBuffer<MeshUniform>>()
                 .add_systems(
                     ExtractSchedule,
                     (extract_meshes, extract_skins, extract_morphs),
@@ -132,13 +133,18 @@ impl Plugin for MeshRenderPlugin {
                             batch_and_prepare_render_phase::<Shadow, MeshPipeline>,
                             batch_and_prepare_render_phase::<Opaque3dDeferred, MeshPipeline>,
                             batch_and_prepare_render_phase::<AlphaMask3dDeferred, MeshPipeline>,
-                        )
-                            .in_set(RenderSet::PrepareResources),
-                        write_batched_instance_buffer::<MeshPipeline>
-                            .in_set(RenderSet::PrepareResourcesFlush),
+                        ),
+                        (
+                            prepare_mesh_bind_group::<Opaque3d>,
+                            prepare_mesh_bind_group::<Transmissive3d>,
+                            prepare_mesh_bind_group::<Transparent3d>,
+                            prepare_mesh_bind_group::<AlphaMask3d>,
+                            prepare_mesh_bind_group::<Shadow>,
+                            prepare_mesh_bind_group::<Opaque3dDeferred>,
+                            prepare_mesh_bind_group::<AlphaMask3dDeferred>
+                        ).in_set(RenderSet::PrepareBindGroups),
                         prepare_skins.in_set(RenderSet::PrepareResources),
                         prepare_morphs.in_set(RenderSet::PrepareResources),
-                        prepare_mesh_bind_group.in_set(RenderSet::PrepareBindGroups),
                         prepare_mesh_view_bind_groups.in_set(RenderSet::PrepareBindGroups),
                     ),
                 );
@@ -158,10 +164,15 @@ impl Plugin for MeshRenderPlugin {
                 ));
             }
 
+            let device = render_app.world.resource::<RenderDevice>().clone();
             render_app
-                .insert_resource(GpuArrayBuffer::<MeshUniform>::new(
-                    render_app.world.resource::<RenderDevice>(),
-                ))
+                .insert_resource(RenderPhaseArrayBuffer::<MeshUniform, Opaque3d>::new(&device))
+                .insert_resource(RenderPhaseArrayBuffer::<MeshUniform, Transmissive3d>::new(&device))
+                .insert_resource(RenderPhaseArrayBuffer::<MeshUniform, Transparent3d>::new(&device))
+                .insert_resource(RenderPhaseArrayBuffer::<MeshUniform, AlphaMask3d>::new(&device))
+                .insert_resource(RenderPhaseArrayBuffer::<MeshUniform, Shadow>::new(&device))
+                .insert_resource(RenderPhaseArrayBuffer::<MeshUniform, Opaque3dDeferred>::new(&device))
+                .insert_resource(RenderPhaseArrayBuffer::<MeshUniform, AlphaMask3dDeferred>::new(&device))
                 .init_resource::<MeshPipeline>();
         }
 
@@ -326,7 +337,7 @@ pub fn extract_meshes(
 }
 
 #[derive(Resource, Clone)]
-pub struct MeshPipeline {
+pub struct MeshPipeline<I: PhaseItem> {
     view_layouts: [MeshPipelineViewLayout; MeshPipelineViewLayoutKey::COUNT],
     // This dummy white texture is to be used in place of optional StandardMaterial textures
     pub dummy_white_gpu_image: GpuImage,
@@ -350,9 +361,11 @@ pub struct MeshPipeline {
     ///
     /// This affects whether reflection probes can be used.
     pub binding_arrays_are_usable: bool,
+
+    marker: PhantomData<I>,
 }
 
-impl FromWorld for MeshPipeline {
+impl<I: PhaseItem> FromWorld for MeshPipeline<I> {
     fn from_world(world: &mut World) -> Self {
         let mut system_state: SystemState<(
             Res<RenderDevice>,
@@ -407,11 +420,12 @@ impl FromWorld for MeshPipeline {
             mesh_layouts: MeshLayouts::new(&render_device),
             per_object_buffer_batch_size: GpuArrayBuffer::<MeshUniform>::batch_size(&render_device),
             binding_arrays_are_usable: binding_arrays_are_usable(&render_device),
+            marker: PhantomData,
         }
     }
 }
 
-impl MeshPipeline {
+impl<I: PhaseItem> MeshPipeline<I> {
     pub fn get_image_texture<'a>(
         &'a self,
         gpu_images: &'a RenderAssets<Image>,
@@ -975,13 +989,13 @@ impl MeshBindGroups {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn prepare_mesh_bind_group(
+pub fn prepare_mesh_bind_group<I: PhaseItem>(
     meshes: Res<RenderAssets<Mesh>>,
     images: Res<RenderAssets<Image>>,
     mut groups: ResMut<MeshBindGroups>,
     mesh_pipeline: Res<MeshPipeline>,
     render_device: Res<RenderDevice>,
-    mesh_uniforms: Res<GpuArrayBuffer<MeshUniform>>,
+    mesh_uniforms: Res<RenderPhaseArrayBuffer<MeshUniform, I>>,
     skins_uniform: Res<SkinUniform>,
     weights_uniform: Res<MorphUniform>,
     render_lightmaps: Res<RenderLightmaps>,

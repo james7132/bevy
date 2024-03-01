@@ -151,11 +151,16 @@ where
                 .add_systems(
                     Render,
                     (
-                        prepare_previous_view_projection_uniforms,
-                        batch_and_prepare_render_phase::<Opaque3dPrepass, MeshPipeline>,
-                        batch_and_prepare_render_phase::<AlphaMask3dPrepass, MeshPipeline>,
+                        (
+                            prepare_previous_view_projection_uniforms,
+                            batch_and_prepare_render_phase::<Opaque3dPrepass, MeshPipeline>,
+                            batch_and_prepare_render_phase::<AlphaMask3dPrepass, MeshPipeline>,
+                        ).in_set(RenderSet::PrepareResources),
+                        (
+                            prepare_mesh_bind_group::<Opaque3dPrepass>,
+                            prepare_mesh_bind_group::<AlphaMask3dPrepass>,
+                        ).in_set(RenderSet::PrepareBindGroups),
                     )
-                        .in_set(RenderSet::PrepareResources),
                 );
         }
 
@@ -172,6 +177,15 @@ where
                     // queue_material_meshes only writes to `material_bind_group_id`, which `queue_prepass_material_meshes` doesn't read
                     .ambiguous_with(queue_material_meshes::<StandardMaterial>),
             );
+    }
+
+    fn finish(&self, app: &mut App) {
+        if let Ok(render_app) = app.get_sub_app_mut(RenderApp) {
+            let device = render_app.world.resource::<RenderDevice>().clone();
+            render_app
+                .insert_resource(RenderPhaseArrayBuffer::<MeshUniform, Opaque3dPrepass>::new(&device))
+                .insert_resource(RenderPhaseArrayBuffer::<MeshUniform, AlphaMask3dPrepass>::new(&device));
+        }
     }
 }
 

@@ -4,8 +4,9 @@ use super::{
 };
 use crate::{
     render_resource::batched_uniform_buffer::BatchedUniformBuffer,
-    renderer::{RenderDevice, RenderQueue},
+    renderer::{RenderDevice, RenderQueue}, render_phase::PhaseItem, 
 };
+use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::{prelude::Component, system::Resource};
 use bevy_utils::nonmax::NonMaxU32;
 use encase::{private::WriteInto, ShaderSize, ShaderType};
@@ -15,6 +16,15 @@ use wgpu::BindingResource;
 /// Trait for types able to go in a [`GpuArrayBuffer`].
 pub trait GpuArrayBufferable: ShaderType + ShaderSize + WriteInto + Clone {}
 impl<T: ShaderType + ShaderSize + WriteInto + Clone> GpuArrayBufferable for T {}
+
+#[derive(Resource, Deref, DerefMut)]
+pub struct RenderPhaseArrayBuffer<T: GpuArrayBufferable, R: PhaseItem>(#[deref] GpuArrayBuffer<T>, PhantomData<R>);
+
+impl<T: GpuArrayBufferable, R: PhaseItem> RenderPhaseArrayBuffer<T, R> {
+    pub fn new(device: &RenderDevice) -> Self {
+        Self(GpuArrayBuffer::new(device), PhantomData)
+    }
+}
 
 /// Stores an array of elements to be transferred to the GPU and made accessible to shaders as a read-only array.
 ///
