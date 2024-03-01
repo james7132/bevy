@@ -19,7 +19,7 @@ use crate::{
 };
 use bevy_ptr::OwningPtr;
 use bevy_utils::all_tuples;
-use std::any::TypeId;
+use std::{any::TypeId, sync::Arc};
 
 /// The `Bundle` trait enables insertion and removal of [`Component`]s from an entity.
 ///
@@ -966,7 +966,7 @@ pub struct Bundles {
     bundle_ids: TypeIdMap<BundleId>,
     /// Cache dynamic [`BundleId`] with multiple components
     dynamic_bundle_ids: HashMap<Box<[ComponentId]>, BundleId>,
-    dynamic_bundle_storages: HashMap<BundleId, Vec<StorageType>>,
+    dynamic_bundle_storages: HashMap<BundleId, Arc<[StorageType]>>,
     /// Cache optimized dynamic [`BundleId`] with single component
     dynamic_component_bundle_ids: HashMap<ComponentId, BundleId>,
     dynamic_component_storages: HashMap<BundleId, StorageType>,
@@ -1011,10 +1011,14 @@ impl Bundles {
         id
     }
 
+    /// # Safety
+    /// `id` must be initialized from this `Bundles`.
     pub(crate) unsafe fn get_unchecked(&self, id: BundleId) -> &BundleInfo {
         self.bundle_infos.get_unchecked(id.0)
     }
 
+    /// # Safety
+    /// `id` must be initialized from this `Bundles`.
     pub(crate) unsafe fn get_storage_unchecked(&self, id: BundleId) -> StorageType {
         *self
             .dynamic_component_storages
@@ -1022,7 +1026,9 @@ impl Bundles {
             .debug_checked_unwrap()
     }
 
-    pub(crate) unsafe fn get_storages_unchecked(&mut self, id: BundleId) -> &mut Vec<StorageType> {
+    /// # Safety
+    /// `id` must be initialized from this `Bundles`.
+    pub(crate) unsafe fn get_storages_unchecked(&mut self, id: BundleId) ->  &Arc<[StorageType]> {
         self.dynamic_bundle_storages
             .get_mut(&id)
             .debug_checked_unwrap()
@@ -1050,7 +1056,7 @@ impl Bundles {
                 let (id, storages) =
                     initialize_dynamic_bundle(bundle_infos, components, Vec::from(component_ids));
                 self.dynamic_bundle_storages
-                    .insert_unique_unchecked(id, storages);
+                    .insert_unique_unchecked(id, storages.into());
                 (component_ids.into(), id)
             });
         *bundle_id

@@ -720,8 +720,8 @@ impl<'w> EntityWorldMut<'w> {
             .world
             .bundles
             .init_dynamic_info(&self.world.components, component_ids);
-        let mut storage_types =
-            std::mem::take(self.world.bundles.get_storages_unchecked(bundle_id));
+        let storage_types =
+            self.world.bundles.get_storages_unchecked(bundle_id).clone();
         let bundle_inserter = BundleInserter::new_with_id(
             self.world,
             self.location.archetype_id,
@@ -736,7 +736,7 @@ impl<'w> EntityWorldMut<'w> {
             iter_components,
             (*storage_types).iter().cloned(),
         );
-        *self.world.bundles.get_storages_unchecked(bundle_id) = std::mem::take(&mut storage_types);
+
         self
     }
 
