@@ -8,6 +8,120 @@ use std::{
 use bevy_ptr::{OwningPtr, Ptr, PtrMut};
 use bevy_utils::OnDrop;
 
+use crate::query::DebugCheckedUnwrap;
+
+#[derive(Debug)]
+pub(crate) struct ThinVec<T> {
+    data: NonNull<T>,
+    #[cfg(debug_assertions)]
+    length: usize,
+    #[cfg(debug_assertions)]
+    capacity: usize,
+}
+
+impl<T> ThinVec<T> {
+    #[inline]
+    pub unsafe fn as_vec(&mut self, length: usize, capacity: usize, f: impl FnOnce(&mut Vec<T>)) {
+        let mut vec = Vec::from_raw_parts(self.data.as_ptr(), length, capacity);
+        f(&mut vec);
+        self.data = unsafe { NonNull::new_unchecked(vec.as_mut_ptr()) };
+        #[cfg(not(debug_assertions))]
+        {
+            std::mem::forget(vec);
+        }
+        #[cfg(debug_assertions)]
+        {
+            self.length = vec.len();
+            self.capacity = vec.capacity();
+        }
+    }
+
+    #[inline]
+    pub unsafe fn get_unchecked(&self, index: usize) -> &T {
+        #[cfg(debug_assertions)]
+        assert!(index < self.length);
+        #[cfg(debug_assertions)]
+        assert!(index < self.capacity);
+
+        self.data
+            .as_ptr()
+            .add(index)
+            .as_ref()
+            .debug_checked_unwrap()
+    }
+
+    #[inline]
+    pub unsafe fn get_unchecked_mut(&mut self, index: usize) -> &mut T {
+        #[cfg(debug_assertions)]
+        assert!(index < self.length);
+        #[cfg(debug_assertions)]
+        assert!(index < self.capacity);
+
+        self.data
+            .as_ptr()
+            .add(index)
+            .as_mut()
+            .debug_checked_unwrap()
+    }
+
+    #[inline]
+    pub unsafe fn swap_remove_unchecked(&mut self, index: usize, len: usize) -> T {
+        debug_assert!(index < len);
+        #[cfg(debug_assertions)]
+        assert_eq!(len, self.length);
+
+        let target = self.data.as_ptr().add(index);
+        let value = target.read();
+        std::ptr::copy(self.data.as_ptr().add(len - 1), target, 1);
+        #[cfg(debug_assertions)]
+        {
+            self.length -= 1;
+        }
+
+        value
+    }
+
+    #[inline]
+    pub unsafe fn as_slice(&self, length: usize) -> &[T] {
+        #[cfg(debug_assertions)]
+        assert_eq!(length, self.length);
+
+        std::slice::from_raw_parts(self.data.as_ptr(), length)
+    }
+
+    #[inline]
+    pub unsafe fn as_slice_mut(&mut self, length: usize) -> &mut [T] {
+        #[cfg(debug_assertions)]
+        assert_eq!(length, self.length);
+
+        std::slice::from_raw_parts_mut(self.data.as_ptr(), length)
+    }
+
+    #[inline]
+    #[cfg(debug_assertions)]
+    pub unsafe fn clear(&mut self) {
+        self.length = 0;
+    }
+
+    #[inline]
+    #[cfg(debug_assertions)]
+    pub unsafe fn set_len(&mut self, len: usize) {
+        self.length = len;
+    }
+}
+
+impl<T> From<Vec<T>> for ThinVec<T> {
+    fn from(mut value: Vec<T>) -> ThinVec<T> {
+        Self {
+            data: unsafe { NonNull::new_unchecked(value.as_mut_ptr()) },
+            #[cfg(debug_assertions)]
+            length: value.len(),
+            #[cfg(debug_assertions)]
+            capacity: value.capacity(),
+        }
+    }
+}
+
 /// A flat, type-erased data storage type
 ///
 /// Used to densely store homogeneous ECS data. A blob is usually just an arbitrary block of contiguous memory without any identity, and
@@ -58,27 +172,15 @@ impl BlobVec {
     ) -> BlobVec {
         let align = NonZeroUsize::new(item_layout.align()).expect("alignment must be > 0");
         let data = bevy_ptr::dangling_with_align(align);
-        if item_layout.size() == 0 {
-            BlobVec {
-                data,
-                // ZST `BlobVec` max size is `usize::MAX`, and `reserve_exact` for ZST assumes
-                // the capacity is always `usize::MAX` and panics if it overflows.
-                capacity: usize::MAX,
-                len: 0,
-                item_layout,
-                drop,
-            }
-        } else {
-            let mut blob_vec = BlobVec {
-                data,
-                capacity: 0,
-                len: 0,
-                item_layout,
-                drop,
-            };
-            blob_vec.reserve_exact(capacity);
-            blob_vec
-        }
+        let mut blob_vec = BlobVec {
+            data,
+            capacity: 0,
+            len: 0,
+            item_layout,
+            drop,
+        };
+        blob_vec.reserve_exact(capacity);
+        blob_vec
     }
 
     /// Returns the number of elements in the vector.
@@ -117,10 +219,14 @@ impl BlobVec {
     /// Panics if new capacity overflows `usize`.
     pub fn reserve_exact(&mut self, additional: usize) {
         let available_space = self.capacity - self.len;
-        if available_space < additional {
-            // SAFETY: `available_space < additional`, so `additional - available_space > 0`
-            let increment = unsafe { NonZeroUsize::new_unchecked(additional - available_space) };
-            self.grow_exact(increment);
+        if available_space < additional && self.item_layout.size() != 0 {
+            if self.item_layout.size() == 0 {
+                self.capacity += additional;
+            } else {
+                // SAFETY: `available_space < additional`, so `additional - available_space > 0`
+                let increment = unsafe { NonZeroUsize::new_unchecked(additional - available_space) };
+                self.grow_exact(increment);
+            }
         }
     }
 
