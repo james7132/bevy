@@ -134,7 +134,7 @@ impl TaskPoolBuilder {
 #[derive(Debug)]
 pub struct TaskPool {
     /// The executor for the pool.
-    executor: Arc<crate::executor::Executor<'static>>,
+    executor: &'static async_executor::StaticExecutor,
 
     // The inner state of the pool.
     threads: Vec<JoinHandle<()>>,
@@ -160,7 +160,7 @@ impl TaskPool {
     fn new_internal(builder: TaskPoolBuilder) -> Self {
         let (shutdown_tx, shutdown_rx) = async_channel::unbounded::<()>();
 
-        let executor = Arc::new(crate::executor::Executor::new());
+        let executor = async_executor::Executor::new().leak();
 
         let num_threads = builder
             .num_threads
@@ -168,7 +168,6 @@ impl TaskPool {
 
         let threads = (0..num_threads)
             .map(|i| {
-                let ex = Arc::clone(&executor);
                 let shutdown_rx = shutdown_rx.clone();
 
                 let thread_name = if let Some(thread_name) = builder.thread_name.as_deref() {
@@ -200,7 +199,7 @@ impl TaskPool {
                                             local_executor.tick().await;
                                         }
                                     };
-                                    block_on(ex.run(tick_forever.or(shutdown_rx.recv())))
+                                    block_on(executor.run(tick_forever.or(shutdown_rx.recv())))
                                 });
                                 if let Ok(value) = res {
                                     // Use unwrap_err because we expect a Closed error
@@ -376,10 +375,8 @@ impl TaskPool {
         // transmute the lifetimes to 'env here to appease the compiler as it is unable to validate safety.
         // Any usages of the references passed into `Scope` must be accessed through
         // the transmuted reference for the rest of this function.
-        let executor: &crate::executor::Executor = &self.executor;
         // SAFETY: As above, all futures must complete in this function so we can change the lifetime
-        let executor: &'env crate::executor::Executor = unsafe { mem::transmute(executor) };
-        // SAFETY: As above, all futures must complete in this function so we can change the lifetime
+        let executor = self.executor;
         let external_executor: &'env ThreadExecutor<'env> =
             unsafe { mem::transmute(external_executor) };
         // SAFETY: As above, all futures must complete in this function so we can change the lifetime
@@ -464,7 +461,7 @@ impl TaskPool {
 
     #[inline]
     async fn execute_global_external_scope<'scope, 'ticker, T>(
-        executor: &'scope crate::executor::Executor<'scope>,
+        executor: &'static async_executor::StaticExecutor,
         external_ticker: ThreadExecutorTicker<'scope, 'ticker>,
         scope_ticker: ThreadExecutorTicker<'scope, 'ticker>,
         get_results: impl Future<Output = Vec<T>>,
@@ -510,7 +507,7 @@ impl TaskPool {
 
     #[inline]
     async fn execute_global_scope<'scope, 'ticker, T>(
-        executor: &'scope crate::executor::Executor<'scope>,
+        executor: &'static async_executor::StaticExecutor,
         scope_ticker: ThreadExecutorTicker<'scope, 'ticker>,
         get_results: impl Future<Output = Vec<T>>,
     ) -> Vec<T> {
@@ -625,7 +622,7 @@ impl Drop for TaskPool {
 /// For more information, see [`TaskPool::scope`].
 #[derive(Debug)]
 pub struct Scope<'scope, 'env: 'scope, T> {
-    executor: &'scope crate::executor::Executor<'scope>,
+    executor: &'static async_executor::StaticExecutor,
     external_executor: &'scope ThreadExecutor<'scope>,
     scope_executor: &'scope ThreadExecutor<'scope>,
     spawned: &'scope ConcurrentQueue<FallibleTask<Result<T, Box<(dyn core::any::Any + Send)>>>>,
@@ -644,10 +641,15 @@ impl<'scope, 'env, T: Send + 'scope> Scope<'scope, 'env, T> {
     ///
     /// For more information, see [`TaskPool::scope`].
     pub fn spawn<Fut: Future<Output = T> + 'scope + Send>(&self, f: Fut) {
-        let task = self
-            .executor
-            .spawn(AssertUnwindSafe(f).catch_unwind())
-            .fallible();
+        #[expect(
+            unsafe_code,
+            reason = "StaticExecutor::spawn otherwise requires 'static Future types"
+        )]
+        let task = unsafe {
+            self.executor
+                .spawn_scoped(AssertUnwindSafe(f).catch_unwind())
+                .fallible()
+        };
         // ConcurrentQueue only errors when closed or full, but we never
         // close and use an unbounded queue, so it is safe to unwrap
         self.spawned.push(task).unwrap();
