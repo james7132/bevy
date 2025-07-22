@@ -49,6 +49,7 @@ use futures_lite::FutureExt;
 ///         drop(signal);
 ///     }));
 /// ```
+#[derive(Debug)]
 pub struct Executor<'a, const C: usize = 64> {
     state: LazyLock<Arc<State<C>>>,
     _invariant: PhantomData<core::cell::UnsafeCell<&'a ()>>,
@@ -433,6 +434,7 @@ impl<'a, const C: usize> Default for LocalExecutor<'a, C> {
     }
 }
 
+#[derive(Debug)]
 struct State<const C: usize> {
     #[cfg(all(
         target_has_atomic = "8",

@@ -134,7 +134,7 @@ impl TaskPoolBuilder {
 #[derive(Debug)]
 pub struct TaskPool {
     /// The executor for the pool.
-    executor: &'static async_executor::StaticExecutor,
+    executor: crate::executor::StaticExecutor,
 
     // The inner state of the pool.
     threads: Vec<JoinHandle<()>>,
@@ -160,7 +160,7 @@ impl TaskPool {
     fn new_internal(builder: TaskPoolBuilder) -> Self {
         let (shutdown_tx, shutdown_rx) = async_channel::unbounded::<()>();
 
-        let executor = async_executor::Executor::new().leak();
+        let executor = crate::executor::StaticExecutor::new();
 
         let num_threads = builder
             .num_threads
@@ -168,6 +168,7 @@ impl TaskPool {
 
         let threads = (0..num_threads)
             .map(|i| {
+                let ex = executor.clone();
                 let shutdown_rx = shutdown_rx.clone();
 
                 let thread_name = if let Some(thread_name) = builder.thread_name.as_deref() {
@@ -199,7 +200,7 @@ impl TaskPool {
                                             local_executor.tick().await;
                                         }
                                     };
-                                    block_on(executor.run(tick_forever.or(shutdown_rx.recv())))
+                                    block_on(ex.run(tick_forever.or(shutdown_rx.recv())))
                                 });
                                 if let Ok(value) = res {
                                     // Use unwrap_err because we expect a Closed error
@@ -375,9 +376,9 @@ impl TaskPool {
         // transmute the lifetimes to 'env here to appease the compiler as it is unable to validate safety.
         // Any usages of the references passed into `Scope` must be accessed through
         // the transmuted reference for the rest of this function.
-        // SAFETY: As above, all futures must complete in this function so we can change the lifetime
-        let executor = self.executor;
+        let executor = &self.executor;
         let external_executor: &'env ThreadExecutor<'env> =
+            // SAFETY: All futures must complete in this function so we can change the lifetime
             unsafe { mem::transmute(external_executor) };
         // SAFETY: As above, all futures must complete in this function so we can change the lifetime
         let scope_executor: &'env ThreadExecutor<'env> = unsafe { mem::transmute(scope_executor) };
@@ -641,6 +642,7 @@ impl<'scope, 'env, T: Send + 'scope> Scope<'scope, 'env, T> {
     ///
     /// For more information, see [`TaskPool::scope`].
     pub fn spawn<Fut: Future<Output = T> + 'scope + Send>(&self, f: Fut) {
+        // SAFETY: The provided future, and its Runnable will live longer than 'scope
         #[expect(
             unsafe_code,
             reason = "StaticExecutor::spawn otherwise requires 'static Future types"

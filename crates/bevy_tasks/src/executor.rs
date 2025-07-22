@@ -18,9 +18,12 @@ cfg_if::cfg_if! {
     if #[cfg(feature = "async_executor")] {
         type ExecutorInner<'a> = async_executor::Executor<'a>;
         type LocalExecutorInner<'a> = async_executor::LocalExecutor<'a>;
+        type StaticExecutorInner = &'static async_executor::StaticExecutor;
     } else {
+        use bevy_platform::sync::Arc;
         type ExecutorInner<'a> = crate::edge_executor::Executor<'a, 64>;
         type LocalExecutorInner<'a> = crate::edge_executor::LocalExecutor<'a, 64>;
+        type StaticExecutorInner = Arc<crate::edge_executor::Executor<'static, 64>>;
     }
 }
 
@@ -28,16 +31,16 @@ cfg_if::cfg_if! {
 pub use async_task::FallibleTask;
 
 /// Wrapper around a multi-threading-aware async executor.
-/// Spawning will generally require tasks to be `Send` and `Sync` to allow multiple
+/// Spawning will generally require tasks to be `Send` to allow multiple
 /// threads to send/receive/advance tasks.
 ///
-/// If you require an executor _without_ the `Send` and `Sync` requirements, consider
+/// If you require an executor _without_ the `Send` requirements, consider
 /// using [`LocalExecutor`] instead.
 #[derive(Deref, DerefMut, Default)]
 pub struct Executor<'a>(ExecutorInner<'a>);
 
 /// Wrapper around a single-threaded async executor.
-/// Spawning wont generally require tasks to be `Send` and `Sync`, at the cost of
+/// Spawning won't generally require tasks to be `Send` or `Sync`, at the cost of
 /// this executor itself not being `Send` or `Sync`. This makes it unsuitable for
 /// global statics.
 ///
@@ -79,5 +82,29 @@ impl fmt::Debug for Executor<'_> {
 impl fmt::Debug for LocalExecutor<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("LocalExecutor").finish()
+    }
+}
+
+/// Wrapper around static lifetime'ed multi-threading-aware async executor.
+/// Spawning will generally require tasks to be `Send` to allow multiple
+/// threads to send/receive/advance tasks.
+///
+/// The underlying type might be optimized for use in static variables or thread locals
+/// and may not cancel or clean up like [`Executor`] does.
+///
+/// If you require an executor _without_ the `Send` and `Sync` requirements, consider
+/// using [`LocalExecutor`] instead.
+#[derive(Clone, Debug, Deref, DerefMut)]
+pub(crate) struct StaticExecutor(StaticExecutorInner);
+
+impl StaticExecutor {
+    pub(crate) fn new() -> Self {
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "async_executor")] {
+                Self(async_executor::Executor::new().leak())
+            } else {
+                Self(Arc::new(crate::edge_executor::Executor::new()))
+            }
+        }
     }
 }

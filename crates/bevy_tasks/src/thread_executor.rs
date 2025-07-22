@@ -1,7 +1,6 @@
 use core::marker::PhantomData;
 use std::thread::{self, ThreadId};
 
-use crate::executor::Executor;
 use async_task::Task;
 use futures_lite::Future;
 
@@ -42,23 +41,19 @@ use futures_lite::Future;
 /// ```
 #[derive(Debug)]
 pub struct ThreadExecutor<'task> {
-    executor: Executor<'task>,
+    executor: crate::executor::StaticExecutor,
     thread_id: ThreadId,
-}
-
-impl<'task> Default for ThreadExecutor<'task> {
-    fn default() -> Self {
-        Self {
-            executor: Executor::new(),
-            thread_id: thread::current().id(),
-        }
-    }
+    _marker: PhantomData<&'task ()>,
 }
 
 impl<'task> ThreadExecutor<'task> {
     /// create a new [`ThreadExecutor`]
-    pub fn new() -> Self {
-        Self::default()
+    pub(crate) fn new() -> Self {
+        Self {
+            executor: crate::executor::StaticExecutor::new(),
+            thread_id: thread::current().id(),
+            _marker: PhantomData,
+        }
     }
 
     /// Spawn a task on the thread executor
@@ -66,7 +61,14 @@ impl<'task> ThreadExecutor<'task> {
         &self,
         future: impl Future<Output = T> + Send + 'task,
     ) -> Task<T> {
-        self.executor.spawn(future)
+        // SAFETY: The provided future, and its Runnable will live longer than 'task
+        #[expect(
+            unsafe_code,
+            reason = "StaticExecutor::spawn otherwise requires 'static Futures"
+        )]
+        unsafe {
+            self.executor.spawn_scoped(future)
+        }
     }
 
     /// Gets the [`ThreadExecutorTicker`] for this executor.
