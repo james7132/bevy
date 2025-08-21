@@ -2639,7 +2639,8 @@ impl<'w> EntityWorldMut<'w> {
 
         {
             let archetype = &mut world.archetypes[location.archetype_id];
-            let remove_result = archetype.swap_remove(location.archetype_row);
+            // SAFETY: The entity must be in bounds if this was removed.
+            let remove_result = unsafe { archetype.swap_remove_unchecked(location.archetype_row) };
             if let Some(swapped_entity) = remove_result.swapped_entity {
                 let swapped_location = world.entities.get(swapped_entity).unwrap();
                 // SAFETY: swapped_entity is valid and the swapped entity's components are
@@ -2690,8 +2691,10 @@ impl<'w> EntityWorldMut<'w> {
                     .entities
                     .mark_spawn_despawn(moved_entity.index(), caller, change_tick);
             }
-            world.archetypes[moved_location.archetype_id]
-                .set_entity_table_row(moved_location.archetype_row, table_row);
+            unsafe {
+                world.archetypes[moved_location.archetype_id]
+                    .set_entity_table_row(moved_location.archetype_row, table_row);
+            }
         }
         world.flush();
     }

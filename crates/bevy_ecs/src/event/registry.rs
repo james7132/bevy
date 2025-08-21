@@ -5,6 +5,7 @@ use bevy_ecs::{
     event::{BufferedEvent, EventKey, Events},
     resource::Resource,
     world::World,
+    storage::Vec32,
 };
 
 #[doc(hidden)]
@@ -25,7 +26,7 @@ pub struct EventRegistry {
     ///
     /// This field is generally automatically updated by the [`signal_event_update_system`](crate::event::update::signal_event_update_system).
     pub should_update: ShouldUpdateEvents,
-    event_updates: Vec<RegisteredEvent>,
+    event_updates: Vec32<RegisteredEvent>,
 }
 
 /// Controls whether or not the events in an [`EventRegistry`] should be updated.

@@ -35,8 +35,8 @@ where
         let change_tick = world.change_tick();
 
         let (lower, upper) = iter.size_hint();
-        let length = upper.unwrap_or(lower);
-        world.entities.reserve(length as u32);
+        let length = upper.unwrap_or(lower) as u32;
+        world.entities.reserve(length);
 
         let mut spawner = BundleSpawner::new::<I::Item>(world, change_tick);
         spawner.reserve_storage(length);

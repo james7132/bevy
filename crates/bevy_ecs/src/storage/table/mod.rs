@@ -3,16 +3,16 @@ use crate::{
     component::{CheckChangeTicks, ComponentId, ComponentInfo, ComponentTicks, Components, Tick},
     entity::Entity,
     query::DebugCheckedUnwrap,
-    storage::{blob_vec::BlobVec, ImmutableSparseSet, SparseSet},
+    storage::{blob_vec::BlobVec, ImmutableSparseSet, SparseSet, Vec32},
 };
-use alloc::{boxed::Box, vec, vec::Vec};
+use alloc::boxed::Box;
 use bevy_platform::collections::HashMap;
 use bevy_ptr::{OwningPtr, Ptr, UnsafeCellDeref};
 pub use column::*;
 use core::{
     alloc::Layout,
     cell::UnsafeCell,
-    num::NonZeroUsize,
+    num::NonZeroU32,
     ops::{Index, IndexMut},
     panic::Location,
 };
@@ -139,15 +139,15 @@ impl TableRow {
 // means the safety invariant must be enforced even in `TableBuilder`.
 pub(crate) struct TableBuilder {
     columns: SparseSet<ComponentId, ThinColumn>,
-    entities: Vec<Entity>,
+    entities: Vec32<Entity>,
 }
 
 impl TableBuilder {
     /// Start building a new [`Table`] with a specified `column_capacity` (How many components per column?) and a `capacity` (How many columns?)
-    pub fn with_capacity(capacity: usize, column_capacity: usize) -> Self {
+    pub fn with_capacity(capacity: u32, column_capacity: usize) -> Self {
         Self {
             columns: SparseSet::with_capacity(column_capacity),
-            entities: Vec::with_capacity(capacity),
+            entities: Vec32::with_capacity(capacity),
         }
     }
 
@@ -156,7 +156,7 @@ impl TableBuilder {
     pub fn add_column(mut self, component_info: &ComponentInfo) -> Self {
         self.columns.insert(
             component_info.id(),
-            ThinColumn::with_capacity(component_info, self.entities.capacity()),
+            ThinColumn::with_capacity(component_info, self.entities.capacity() as usize),
         );
         self
     }
@@ -190,7 +190,7 @@ impl TableBuilder {
 // means the safety invariant must be enforced even in `TableBuilder`.
 pub struct Table {
     columns: ImmutableSparseSet<ComponentId, ThinColumn>,
-    entities: Vec<Entity>,
+    entities: Vec32<Entity>,
 }
 
 struct AbortOnPanic;
@@ -212,7 +212,7 @@ impl Table {
     /// Get the capacity of this table, in entities.
     /// Note that if an allocation is in process, this might not match the actual capacity of the columns, but it should once the allocation ends.
     #[inline]
-    pub fn capacity(&self) -> usize {
+    pub fn capacity(&self) -> u32 {
         self.entities.capacity()
     }
 
@@ -248,7 +248,7 @@ impl Table {
             }
         }
         let is_last = row.index_u32() == last_element_index;
-        self.entities.swap_remove(row.index());
+        unsafe { self.entities.swap_remove_unchecked(row.index_u32()) };
         if is_last {
             None
         } else {
@@ -273,7 +273,7 @@ impl Table {
         debug_assert!(row.index_u32() < self.entity_count());
         let last_element_index = self.entity_count() - 1;
         let is_last = row.index_u32() == last_element_index;
-        let new_row = new_table.allocate(self.entities.swap_remove(row.index()));
+        let new_row = new_table.allocate(self.entities.swap_remove_unchecked(row.index_u32()));
         for (component_id, column) in self.columns.iter_mut() {
             if let Some(new_column) = new_table.get_column_mut(*component_id) {
                 new_column.initialize_from_unchecked(
@@ -312,7 +312,7 @@ impl Table {
         debug_assert!(row.index_u32() < self.entity_count());
         let last_element_index = self.entity_count() - 1;
         let is_last = row.index_u32() == last_element_index;
-        let new_row = new_table.allocate(self.entities.swap_remove(row.index()));
+        let new_row = new_table.allocate(self.entities.swap_remove_unchecked(row.index_u32()));
         for (component_id, column) in self.columns.iter_mut() {
             if let Some(new_column) = new_table.get_column_mut(*component_id) {
                 new_column.initialize_from_unchecked(
@@ -351,7 +351,7 @@ impl Table {
         debug_assert!(row.index_u32() < self.entity_count());
         let last_element_index = self.entity_count() - 1;
         let is_last = row.index_u32() == last_element_index;
-        let new_row = new_table.allocate(self.entities.swap_remove(row.index()));
+        let new_row = new_table.allocate(self.entities.swap_remove_unchecked(row.index_u32()));
         for (component_id, column) in self.columns.iter_mut() {
             new_table
                 .get_column_mut(*component_id)
@@ -512,8 +512,8 @@ impl Table {
     }
 
     /// Reserves `additional` elements worth of capacity within the table.
-    pub(crate) fn reserve(&mut self, additional: usize) {
-        if (self.capacity() - self.entity_count() as usize) < additional {
+    pub(crate) fn reserve(&mut self, additional: u32) {
+        if (self.capacity() - self.entity_count()) < additional {
             let column_cap = self.capacity();
             self.entities.reserve(additional);
 
@@ -522,14 +522,14 @@ impl Table {
 
             if column_cap == 0 {
                 // SAFETY: the current capacity is 0
-                unsafe { self.alloc_columns(NonZeroUsize::new_unchecked(new_capacity)) };
+                unsafe { self.alloc_columns(NonZeroU32::new_unchecked(new_capacity)) };
             } else {
                 // SAFETY:
                 // - `column_cap` is indeed the columns' capacity
                 unsafe {
                     self.realloc_columns(
-                        NonZeroUsize::new_unchecked(column_cap),
-                        NonZeroUsize::new_unchecked(new_capacity),
+                        NonZeroU32::new_unchecked(column_cap),
+                        NonZeroU32::new_unchecked(new_capacity),
                     );
                 };
             }
@@ -544,7 +544,7 @@ impl Table {
     /// The capacity of all columns is determined by that of the `entities` Vec. This means that
     /// it must be the correct capacity to allocate, reallocate, and deallocate all columns. This
     /// means the safety invariant must be enforced even in `TableBuilder`.
-    fn alloc_columns(&mut self, new_capacity: NonZeroUsize) {
+    fn alloc_columns(&mut self, new_capacity: NonZeroU32) {
         // If any of these allocations trigger an unwind, the wrong capacity will be used while dropping this table - UB.
         // To avoid this, we use `AbortOnPanic`. If the allocation triggered a panic, the `AbortOnPanic`'s Drop impl will be
         // called, and abort the program.
@@ -565,8 +565,8 @@ impl Table {
     /// means the safety invariant must be enforced even in `TableBuilder`.
     unsafe fn realloc_columns(
         &mut self,
-        current_column_capacity: NonZeroUsize,
-        new_capacity: NonZeroUsize,
+        current_column_capacity: NonZeroU32,
+        new_capacity: NonZeroU32,
     ) {
         // If any of these allocations trigger an unwind, the wrong capacity will be used while dropping this table - UB.
         // To avoid this, we use `AbortOnPanic`. If the allocation triggered a panic, the `AbortOnPanic`'s Drop impl will be
@@ -635,7 +635,7 @@ impl Table {
     /// Gets the maximum number of entities the table can currently store
     /// without reallocating the underlying memory.
     #[inline]
-    pub fn entity_capacity(&self) -> usize {
+    pub fn entity_capacity(&self) -> u32 {
         self.entities.capacity()
     }
 
@@ -713,15 +713,16 @@ impl Table {
 ///
 /// Can be accessed via [`Storages`](crate::storage::Storages)
 pub struct Tables {
-    tables: Vec<Table>,
+    tables: Vec32<Table>,
     table_ids: HashMap<Box<[ComponentId]>, TableId>,
 }
 
 impl Default for Tables {
     fn default() -> Self {
-        let empty_table = TableBuilder::with_capacity(0, 0).build();
+        let mut tables = Vec32::with_capacity(1);
+        tables.push(TableBuilder::with_capacity(0, 0).build());
         Tables {
-            tables: vec![empty_table],
+            tables,
             table_ids: HashMap::default(),
         }
     }
@@ -735,7 +736,7 @@ pub(crate) struct TableMoveResult {
 impl Tables {
     /// Returns the number of [`Table`]s this collection contains
     #[inline]
-    pub fn len(&self) -> usize {
+    pub fn len(&self) -> u32 {
         self.tables.len()
     }
 
@@ -750,7 +751,7 @@ impl Tables {
     /// Returns `None` if `id` is invalid.
     #[inline]
     pub fn get(&self, id: TableId) -> Option<&Table> {
-        self.tables.get(id.as_usize())
+        self.tables.get(id.as_u32())
     }
 
     /// Fetches mutable references to two different [`Table`]s.
@@ -759,14 +760,14 @@ impl Tables {
     ///
     /// Panics if `a` and `b` are equal.
     #[inline]
-    pub(crate) fn get_2_mut(&mut self, a: TableId, b: TableId) -> (&mut Table, &mut Table) {
-        if a.as_usize() > b.as_usize() {
-            let (b_slice, a_slice) = self.tables.split_at_mut(a.as_usize());
-            (&mut a_slice[0], &mut b_slice[b.as_usize()])
-        } else {
-            let (a_slice, b_slice) = self.tables.split_at_mut(b.as_usize());
-            (&mut a_slice[a.as_usize()], &mut b_slice[0])
-        }
+    pub(crate) unsafe fn get_2_unchecked_mut(&mut self, a: TableId, b: TableId) -> (&mut Table, &mut Table) {
+        debug_assert!(
+            a != b && a.as_u32() < self.tables.len() && b.as_u32() < self.tables.len()
+        );
+        (
+            self.tables.as_ptr().add(a.as_usize()).as_mut().debug_checked_unwrap(),
+            self.tables.as_ptr().add(b.as_usize()).as_mut().debug_checked_unwrap()
+        )
     }
 
     /// Attempts to fetch a table based on the provided components,
@@ -789,12 +790,13 @@ impl Tables {
             .raw_entry_mut()
             .from_key(component_ids)
             .or_insert_with(|| {
+                let table_id = TableId::from_u32(tables.len());
                 let mut table = TableBuilder::with_capacity(0, component_ids.len());
                 for component_id in component_ids {
                     table = table.add_column(components.get_info_unchecked(*component_id));
                 }
                 tables.push(table.build());
-                (component_ids.into(), TableId::from_usize(tables.len() - 1))
+                (component_ids.into(),  table_id)
             });
 
         *value
@@ -843,7 +845,7 @@ impl Drop for Table {
         for col in self.columns.values_mut() {
             // SAFETY: `cap` and `len` are correct
             unsafe {
-                col.drop(cap, len);
+                col.drop(cap as usize, len);
             }
         }
     }

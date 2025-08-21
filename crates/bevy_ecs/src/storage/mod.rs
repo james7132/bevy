@@ -26,10 +26,12 @@ mod resource;
 mod sparse_set;
 mod table;
 mod thin_array_ptr;
+mod vec32;
 
 pub use resource::*;
 pub use sparse_set::*;
 pub use table::*;
+pub(crate) use vec32::*;
 
 use crate::component::{ComponentInfo, StorageType};
 

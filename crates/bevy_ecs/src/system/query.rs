@@ -1548,7 +1548,7 @@ impl<'w, 's, D: QueryData, F: QueryFilter> Query<'w, 's, D, F> {
             if !self
                 .state
                 .matched_archetypes
-                .contains(location.archetype_id.index())
+                .contains(location.archetype_id.index() as usize)
             {
                 return Err(QueryEntityError::QueryDoesNotMatch(
                     entity,

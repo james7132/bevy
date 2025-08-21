@@ -85,10 +85,12 @@ impl<'w> BundleRemover<'w> {
         let tables = if old_archetype.table_id() == new_archetype.table_id() {
             None
         } else {
-            let (old, new) = world
+            let (old, new) = unsafe { 
+                world
                 .storages
                 .tables
-                .get_2_mut(old_archetype.table_id(), new_archetype.table_id());
+                .get_2_unchecked_mut(old_archetype.table_id(), new_archetype.table_id())
+            };
             Some((old.into(), new.into()))
         };
 
@@ -219,7 +221,7 @@ impl<'w> BundleRemover<'w> {
         let remove_result = self
             .old_archetype
             .as_mut()
-            .swap_remove(location.archetype_row);
+            .swap_remove_unchecked(location.archetype_row);
         // if an entity was moved into this entity's archetype row, update its archetype row
         if let Some(swapped_entity) = remove_result.swapped_entity {
             let swapped_location = world.entities.get(swapped_entity).unwrap();

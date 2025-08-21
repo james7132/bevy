@@ -23,7 +23,7 @@ pub struct ThinArrayPtr<T> {
 }
 
 impl<T> ThinArrayPtr<T> {
-    fn empty() -> Self {
+    pub const fn empty() -> Self {
         #[cfg(debug_assertions)]
         {
             Self {
@@ -57,6 +57,10 @@ impl<T> ThinArrayPtr<T> {
             unsafe { arr.alloc(NonZeroUsize::new_unchecked(capacity)) };
         }
         arr
+    }
+
+    pub fn as_ptr(&self) -> *mut T {
+        self.data.as_ptr()
     }
 
     /// Allocate memory for the array, this should only be used if not previous allocation has been made (capacity = 0)

@@ -74,7 +74,7 @@ impl<'w> BundleSpawner<'w> {
     }
 
     #[inline]
-    pub fn reserve_storage(&mut self, additional: usize) {
+    pub fn reserve_storage(&mut self, additional: u32) {
         // SAFETY: There are no outstanding world references
         let (archetype, table) = unsafe { (self.archetype.as_mut(), self.table.as_mut()) };
         archetype.reserve(additional);

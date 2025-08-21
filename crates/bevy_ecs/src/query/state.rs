@@ -156,7 +156,7 @@ impl<D: QueryData, F: QueryFilter> QueryState<D, F> {
 
     /// Returns the archetypes matched by this query.
     pub fn matched_archetypes(&self) -> impl Iterator<Item = ArchetypeId> + '_ {
-        self.matched_archetypes.ones().map(ArchetypeId::new)
+        self.matched_archetypes.ones().map(|id| ArchetypeId::new(id as u32))
     }
 
     /// Creates a new [`QueryState`] from a given [`World`] and inherits the result of `world.id()`.

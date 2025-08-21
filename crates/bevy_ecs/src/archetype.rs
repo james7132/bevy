@@ -20,12 +20,7 @@
 //! [`World::archetypes`]: crate::world::World::archetypes
 
 use crate::{
-    bundle::BundleId,
-    component::{ComponentId, Components, RequiredComponentConstructor, StorageType},
-    entity::{Entity, EntityLocation},
-    event::Event,
-    observer::Observers,
-    storage::{ImmutableSparseSet, SparseArray, SparseSet, TableId, TableRow},
+    bundle::BundleId, component::{ComponentId, Components, RequiredComponentConstructor, StorageType}, entity::{Entity, EntityLocation}, event::Event, observer::Observers, query::DebugCheckedUnwrap, storage::{ImmutableSparseSet, SparseArray, SparseSet, TableId, TableRow, Vec32}
 };
 use alloc::{boxed::Box, vec::Vec};
 use bevy_platform::collections::{hash_map::Entry, HashMap};
@@ -66,13 +61,7 @@ impl ArchetypeRow {
 
     /// Gets the index of the row.
     #[inline]
-    pub const fn index(self) -> usize {
-        self.0.get() as usize
-    }
-
-    /// Gets the index of the row.
-    #[inline]
-    pub const fn index_u32(self) -> u32 {
+    pub const fn index(self) -> u32 {
         self.0.get()
     }
 }
@@ -108,8 +97,8 @@ impl ArchetypeId {
     /// values comes from a pre-existing [`ArchetypeId::index`] in this world
     /// to avoid panics and other unexpected behaviors.
     #[inline]
-    pub const fn new(index: usize) -> Self {
-        ArchetypeId(index as u32)
+    pub const fn new(index: u32) -> Self {
+        ArchetypeId(index)
     }
 
     /// The plain value of this `ArchetypeId`.
@@ -118,8 +107,8 @@ impl ArchetypeId {
     ///
     /// [`FixedBitSet`]: fixedbitset::FixedBitSet
     #[inline]
-    pub fn index(self) -> usize {
-        self.0 as usize
+    pub fn index(self) -> u32 {
+        self.0
     }
 }
 
@@ -385,7 +374,7 @@ pub struct Archetype {
     id: ArchetypeId,
     table_id: TableId,
     edges: Edges,
-    entities: Vec<ArchetypeEntity>,
+    entities: Vec32<ArchetypeEntity>,
     components: ImmutableSparseSet<ComponentId, ArchetypeComponentInfo>,
     pub(crate) flags: ArchetypeFlags,
 }
@@ -444,7 +433,7 @@ impl Archetype {
         Self {
             id,
             table_id,
-            entities: Vec::new(),
+            entities: Vec32::new(),
             components: archetype_components.into_immutable(),
             edges: Default::default(),
             flags,
@@ -566,7 +555,7 @@ impl Archetype {
     /// [`Entities::get`]: crate::entity::Entities::get
     #[inline]
     pub fn entity_table_row(&self, row: ArchetypeRow) -> TableRow {
-        self.entities[row.index()].table_row
+        self.entities.get(row.index()).unwrap().table_row
     }
 
     /// Updates if the components for the entity at `index` can be found
@@ -575,8 +564,8 @@ impl Archetype {
     /// # Panics
     /// This function will panic if `index >= self.len()`.
     #[inline]
-    pub(crate) fn set_entity_table_row(&mut self, row: ArchetypeRow, table_row: TableRow) {
-        self.entities[row.index()].table_row = table_row;
+    pub(crate) unsafe fn set_entity_table_row(&mut self, row: ArchetypeRow, table_row: TableRow) {
+        self.entities.get_mut(row.index()).debug_checked_unwrap().table_row = table_row;
     }
 
     /// Allocates an entity to the archetype.
@@ -603,7 +592,7 @@ impl Archetype {
     }
 
     #[inline]
-    pub(crate) fn reserve(&mut self, additional: usize) {
+    pub(crate) fn reserve(&mut self, additional: u32) {
         self.entities.reserve(additional);
     }
 
@@ -613,14 +602,14 @@ impl Archetype {
     /// # Panics
     /// This function will panic if `row >= self.entities.len()`
     #[inline]
-    pub(crate) fn swap_remove(&mut self, row: ArchetypeRow) -> ArchetypeSwapRemoveResult {
+    pub(crate) unsafe fn swap_remove_unchecked(&mut self, row: ArchetypeRow) -> ArchetypeSwapRemoveResult {
         let is_last = row.index() == self.entities.len() - 1;
-        let entity = self.entities.swap_remove(row.index());
+        let entity = self.entities.swap_remove_unchecked(row.index());
         ArchetypeSwapRemoveResult {
             swapped_entity: if is_last {
                 None
             } else {
-                Some(self.entities[row.index()].entity)
+                Some(self.entities.get(row.index()).debug_checked_unwrap().entity)
             },
             table_row: entity.table_row,
         }
@@ -764,7 +753,7 @@ pub type ComponentIndex = HashMap<ComponentId, HashMap<ArchetypeId, ArchetypeRec
 /// [`World`]: crate::world::World
 /// [module level documentation]: crate::archetype
 pub struct Archetypes {
-    pub(crate) archetypes: Vec<Archetype>,
+    pub(crate) archetypes: Vec32<Archetype>,
     /// find the archetype id by the archetype's components
     by_components: HashMap<ArchetypeComponents, ArchetypeId>,
     /// find all the archetypes that contain a component
@@ -785,7 +774,7 @@ pub struct ArchetypeRecord {
 impl Archetypes {
     pub(crate) fn new() -> Self {
         let mut archetypes = Archetypes {
-            archetypes: Vec::new(),
+            archetypes: Vec32::new(),
             by_components: Default::default(),
             by_component: Default::default(),
         };
@@ -819,7 +808,7 @@ impl Archetypes {
         clippy::len_without_is_empty,
         reason = "The internal vec is never empty"
     )]
-    pub fn len(&self) -> usize {
+    pub fn len(&self) -> u32 {
         self.archetypes.len()
     }
 
@@ -829,7 +818,7 @@ impl Archetypes {
     #[inline]
     pub fn empty(&self) -> &Archetype {
         // SAFETY: empty archetype always exists
-        unsafe { self.archetypes.get_unchecked(ArchetypeId::EMPTY.index()) }
+        unsafe { self.archetypes.get(ArchetypeId::EMPTY.index()).debug_checked_unwrap() }
     }
 
     /// Fetches a mutable reference to the archetype without any components.
@@ -837,8 +826,7 @@ impl Archetypes {
     pub(crate) fn empty_mut(&mut self) -> &mut Archetype {
         // SAFETY: empty archetype always exists
         unsafe {
-            self.archetypes
-                .get_unchecked_mut(ArchetypeId::EMPTY.index())
+            self.archetypes.get_mut(ArchetypeId::EMPTY.index()).debug_checked_unwrap()
         }
     }
 
@@ -853,7 +841,7 @@ impl Archetypes {
     ///
     /// Panics if `a` and `b` are equal.
     #[inline]
-    pub(crate) fn get_2_mut(
+    pub(crate) fn get_2_unchecked_mut(
         &mut self,
         a: ArchetypeId,
         b: ArchetypeId,
@@ -957,7 +945,7 @@ impl Index<RangeFrom<ArchetypeGeneration>> for Archetypes {
 
     #[inline]
     fn index(&self, index: RangeFrom<ArchetypeGeneration>) -> &Self::Output {
-        &self.archetypes[index.start.0.index()..]
+        &self.archetypes[index.start.0.index() as usize..]
     }
 }
 
@@ -966,13 +954,13 @@ impl Index<ArchetypeId> for Archetypes {
 
     #[inline]
     fn index(&self, index: ArchetypeId) -> &Self::Output {
-        &self.archetypes[index.index()]
+        self.archetypes.get(index.index()).unwrap()
     }
 }
 
 impl IndexMut<ArchetypeId> for Archetypes {
     #[inline]
     fn index_mut(&mut self, index: ArchetypeId) -> &mut Self::Output {
-        &mut self.archetypes[index.index()]
+        self.archetypes.get_mut(index.index()).unwrap()
     }
 }

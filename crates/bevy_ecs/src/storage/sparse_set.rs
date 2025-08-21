@@ -1,8 +1,5 @@
 use crate::{
-    change_detection::MaybeLocation,
-    component::{CheckChangeTicks, ComponentId, ComponentInfo, ComponentTicks, Tick, TickCells},
-    entity::{Entity, EntityRow},
-    storage::{Column, TableRow},
+    change_detection::MaybeLocation, component::{CheckChangeTicks, ComponentId, ComponentInfo, ComponentTicks, Tick, TickCells}, entity::{Entity, EntityRow}, query::DebugCheckedUnwrap, storage::{Column, TableRow, Vec32}
 };
 use alloc::{boxed::Box, vec::Vec};
 use bevy_ptr::{OwningPtr, Ptr};
@@ -12,6 +9,12 @@ use nonmax::{NonMaxU32, NonMaxUsize};
 #[derive(Debug)]
 pub(crate) struct SparseArray<I, V = I> {
     values: Vec<Option<V>>,
+    marker: PhantomData<I>,
+}
+
+#[derive(Debug)]
+pub(crate) struct SparseArray32<I, V = I> {
+    values: Vec32<Option<V>>,
     marker: PhantomData<I>,
 }
 
@@ -63,6 +66,24 @@ macro_rules! impl_sparse_array {
 
 impl_sparse_array!(SparseArray);
 impl_sparse_array!(ImmutableSparseArray);
+
+impl<I: SparseSetIndex32, V> SparseArray32<I, V> {
+    /// Returns `true` if the collection contains a value for the specified `index`.
+    #[inline]
+    pub fn contains(&self, index: I) -> bool {
+        let index = index.sparse_set_index();
+        self.values.get(index).is_some_and(Option::is_some)
+    }
+
+    /// Returns a reference to the value at `index`.
+    ///
+    /// Returns `None` if `index` does not have a value or if `index` is out of bounds.
+    #[inline]
+    pub fn get(&self, index: I) -> Option<&V> {
+        let index = index.sparse_set_index();
+        self.values.get(index).and_then(Option::as_ref)
+    }
+}
 
 impl<I: SparseSetIndex, V> SparseArray<I, V> {
     /// Inserts `value` at `index` in the array.
@@ -119,19 +140,19 @@ pub struct ComponentSparseSet {
     // stored for entities that are alive. The generation is not required, but is stored
     // in debug builds to validate that access is correct.
     #[cfg(not(debug_assertions))]
-    entities: Vec<EntityRow>,
+    entities: Vec32<EntityRow>,
     #[cfg(debug_assertions)]
-    entities: Vec<Entity>,
-    sparse: SparseArray<EntityRow, TableRow>,
+    entities: Vec32<Entity>,
+    sparse: SparseArray32<EntityRow, TableRow>,
 }
 
 impl ComponentSparseSet {
     /// Creates a new [`ComponentSparseSet`] with a given component type layout and
     /// initial `capacity`.
-    pub(crate) fn new(component_info: &ComponentInfo, capacity: usize) -> Self {
+    pub(crate) fn new(component_info: &ComponentInfo, capacity: u32) -> Self {
         Self {
-            dense: Column::with_capacity(component_info, capacity),
-            entities: Vec::with_capacity(capacity),
+            dense: Column::with_capacity(component_info, capacity as usize),
+            entities: Vec32::with_capacity(capacity),
             sparse: Default::default(),
         }
     }
@@ -170,7 +191,7 @@ impl ComponentSparseSet {
     ) {
         if let Some(&dense_index) = self.sparse.get(entity.row()) {
             #[cfg(debug_assertions)]
-            assert_eq!(entity, self.entities[dense_index.index()]);
+            assert_eq!(entity, *self.entities.get(dense_index.index_u32()).unwrap());
             self.dense.replace(dense_index, value, change_tick, caller);
         } else {
             let dense_index = self.dense.len();
@@ -184,7 +205,7 @@ impl ComponentSparseSet {
 
             self.sparse.insert(entity.row(), table_row);
             #[cfg(debug_assertions)]
-            assert_eq!(self.entities.len(), dense_index);
+            assert_eq!(self.entities.len(), dense_index as u32);
             #[cfg(not(debug_assertions))]
             self.entities.push(entity.row());
             #[cfg(debug_assertions)]
@@ -199,7 +220,7 @@ impl ComponentSparseSet {
         {
             if let Some(&dense_index) = self.sparse.get(entity.row()) {
                 #[cfg(debug_assertions)]
-                assert_eq!(entity, self.entities[dense_index.index()]);
+                assert_eq!(entity, *self.entities.get(dense_index.index_u32()).unwrap());
                 true
             } else {
                 false
@@ -216,7 +237,7 @@ impl ComponentSparseSet {
     pub fn get(&self, entity: Entity) -> Option<Ptr<'_>> {
         self.sparse.get(entity.row()).map(|&dense_index| {
             #[cfg(debug_assertions)]
-            assert_eq!(entity, self.entities[dense_index.index()]);
+            assert_eq!(entity, *self.entities.get(dense_index.index_u32()).unwrap());
             // SAFETY: if the sparse index points to something in the dense vec, it exists
             unsafe { self.dense.get_data_unchecked(dense_index) }
         })
@@ -236,7 +257,7 @@ impl ComponentSparseSet {
     )> {
         let dense_index = *self.sparse.get(entity.row())?;
         #[cfg(debug_assertions)]
-        assert_eq!(entity, self.entities[dense_index.index()]);
+        assert_eq!(entity, *self.entities.get(dense_index.index_u32()).unwrap());
         // SAFETY: if the sparse index points to something in the dense vec, it exists
         unsafe {
             Some((
@@ -257,7 +278,7 @@ impl ComponentSparseSet {
     pub fn get_added_tick(&self, entity: Entity) -> Option<&UnsafeCell<Tick>> {
         let dense_index = *self.sparse.get(entity.row())?;
         #[cfg(debug_assertions)]
-        assert_eq!(entity, self.entities[dense_index.index()]);
+        assert_eq!(entity, *self.entities.get(dense_index.index_u32()).unwrap());
         // SAFETY: if the sparse index points to something in the dense vec, it exists
         unsafe { Some(self.dense.get_added_tick_unchecked(dense_index)) }
     }
@@ -269,7 +290,7 @@ impl ComponentSparseSet {
     pub fn get_changed_tick(&self, entity: Entity) -> Option<&UnsafeCell<Tick>> {
         let dense_index = *self.sparse.get(entity.row())?;
         #[cfg(debug_assertions)]
-        assert_eq!(entity, self.entities[dense_index.index()]);
+        assert_eq!(entity, *self.entities.get(dense_index.index_u32()).unwrap());
         // SAFETY: if the sparse index points to something in the dense vec, it exists
         unsafe { Some(self.dense.get_changed_tick_unchecked(dense_index)) }
     }
@@ -281,7 +302,7 @@ impl ComponentSparseSet {
     pub fn get_ticks(&self, entity: Entity) -> Option<ComponentTicks> {
         let dense_index = *self.sparse.get(entity.row())?;
         #[cfg(debug_assertions)]
-        assert_eq!(entity, self.entities[dense_index.index()]);
+        assert_eq!(entity, *self.entities.get(dense_index.index_u32()).unwrap());
         // SAFETY: if the sparse index points to something in the dense vec, it exists
         unsafe { Some(self.dense.get_ticks_unchecked(dense_index)) }
     }
@@ -297,7 +318,7 @@ impl ComponentSparseSet {
         MaybeLocation::new_with_flattened(|| {
             let dense_index = *self.sparse.get(entity.row())?;
             #[cfg(debug_assertions)]
-            assert_eq!(entity, self.entities[dense_index.index()]);
+            assert_eq!(entity, *self.entities.get(dense_index.index_u32()).unwrap());
             // SAFETY: if the sparse index points to something in the dense vec, it exists
             unsafe { Some(self.dense.get_changed_by_unchecked(dense_index)) }
         })
@@ -316,13 +337,15 @@ impl ComponentSparseSet {
     pub(crate) fn remove_and_forget(&mut self, entity: Entity) -> Option<OwningPtr<'_>> {
         self.sparse.remove(entity.row()).map(|dense_index| {
             #[cfg(debug_assertions)]
-            assert_eq!(entity, self.entities[dense_index.index()]);
-            self.entities.swap_remove(dense_index.index());
+            assert_eq!(entity, *self.entities.get(dense_index.index_u32()).unwrap());
+            // SAFETY: if the sparse index points to something in the dense vec, it exists and 
+            // is in bounds.
+            unsafe { self.entities.swap_remove_unchecked(dense_index.index_u32()) };
             let is_last = dense_index.index() == self.dense.len() - 1;
             // SAFETY: dense_index was just removed from `sparse`, which ensures that it is valid
             let (value, _, _) = unsafe { self.dense.swap_remove_and_forget_unchecked(dense_index) };
             if !is_last {
-                let swapped_entity = self.entities[dense_index.index()];
+                let swapped_entity = unsafe { self.entities.get(dense_index.index_u32()).debug_checked_unwrap() };
                 #[cfg(not(debug_assertions))]
                 let index = swapped_entity;
                 #[cfg(debug_assertions)]
@@ -339,15 +362,17 @@ impl ComponentSparseSet {
     pub(crate) fn remove(&mut self, entity: Entity) -> bool {
         if let Some(dense_index) = self.sparse.remove(entity.row()) {
             #[cfg(debug_assertions)]
-            assert_eq!(entity, self.entities[dense_index.index()]);
-            self.entities.swap_remove(dense_index.index());
+            assert_eq!(entity, *self.entities.get(dense_index.index_u32()).unwrap());
+            // SAFETY: if the sparse index points to something in the dense vec, it exists and 
+            // is in bounds.
+            unsafe { self.entities.swap_remove_unchecked(dense_index.index_u32()) };
             let is_last = dense_index.index() == self.dense.len() - 1;
             // SAFETY: if the sparse index points to something in the dense vec, it exists
             unsafe {
                 self.dense.swap_remove_unchecked(dense_index);
             }
             if !is_last {
-                let swapped_entity = self.entities[dense_index.index()];
+                let swapped_entity = unsafe { self.entities.get(dense_index.index_u32()).debug_checked_unwrap() };
                 #[cfg(not(debug_assertions))]
                 let index = swapped_entity;
                 #[cfg(debug_assertions)]
@@ -571,6 +596,13 @@ pub trait SparseSetIndex: Clone + PartialEq + Eq + Hash {
     fn get_sparse_set_index(value: usize) -> Self;
 }
 
+pub trait SparseSetIndex32: Clone + PartialEq + Eq + Hash {
+    /// Gets the sparse set index corresponding to this instance.
+    fn sparse_set_index(&self) -> u32;
+    /// Creates a new instance of this type with the specified index.
+    fn get_sparse_set_index(value: usize) -> Self;
+}
+
 macro_rules! impl_sparse_set_index {
     ($($ty:ty),+) => {
         $(impl SparseSetIndex for $ty {
@@ -587,7 +619,24 @@ macro_rules! impl_sparse_set_index {
     };
 }
 
+macro_rules! impl_sparse_set_index_32 {
+    ($($ty:ty),+) => {
+        $(impl SparseSetIndex32 for $ty {
+            #[inline]
+            fn sparse_set_index(&self) -> usize {
+                *self as usize
+            }
+
+            #[inline]
+            fn get_sparse_set_index(value: usize) -> Self {
+                value as $ty
+            }
+        })*
+    };
+}
+
 impl_sparse_set_index!(u8, u16, u32, u64, usize);
+impl_sparse_set_index_32!(u8, u16, u32);
 
 /// A collection of [`ComponentSparseSet`] storages, indexed by [`ComponentId`]
 ///

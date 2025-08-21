@@ -1,4 +1,5 @@
 use super::*;
+use core::num::NonZeroUsize;
 use crate::{
     change_detection::MaybeLocation,
     component::TickCells,

@@ -115,7 +115,9 @@ impl<'w> BundleInserter<'w> {
                     world: world.as_unsafe_world_cell(),
                 }
             } else {
-                let (table, new_table) = world.storages.tables.get_2_mut(table_id, new_table_id);
+                let (table, new_table) = unsafe {
+                    world.storages.tables.get_2_unchecked_mut(table_id, new_table_id)
+                };
                 Self {
                     archetype_after_insert: archetype_after_insert.into(),
                     archetype: archetype.into(),
@@ -220,7 +222,7 @@ impl<'w> BundleInserter<'w> {
                     (&mut world.storages.sparse_sets, &mut world.entities)
                 };
 
-                let result = archetype.swap_remove(location.archetype_row);
+                let result = archetype.swap_remove_unchecked(location.archetype_row);
                 if let Some(swapped_entity) = result.swapped_entity {
                     let swapped_location =
                         // SAFETY: If the swap was successful, swapped_entity must be valid.
@@ -269,7 +271,7 @@ impl<'w> BundleInserter<'w> {
                         &mut world.entities,
                     )
                 };
-                let result = archetype.swap_remove(location.archetype_row);
+                let result = archetype.swap_remove_unchecked(location.archetype_row);
                 if let Some(swapped_entity) = result.swapped_entity {
                     let swapped_location =
                         // SAFETY: If the swap was successful, swapped_entity must be valid.
@@ -314,7 +316,7 @@ impl<'w> BundleInserter<'w> {
                             .set_entity_table_row(swapped_location.archetype_row, result.table_row);
                     } else {
                         // SAFETY: the only two borrowed archetypes are above and we just did collision checks
-                        (*archetypes_ptr.add(swapped_location.archetype_id.index()))
+                        (*archetypes_ptr.add(swapped_location.archetype_id.index() as usize))
                             .set_entity_table_row(swapped_location.archetype_row, result.table_row);
                     }
                 }
